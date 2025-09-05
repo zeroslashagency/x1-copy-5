@@ -14,6 +14,11 @@ app.use(express.json({ limit: '10mb' }));
 // Serve static files from the current directory
 app.use(express.static(__dirname));
 
+// Root route - serve index.html
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
+
 // Health check
 app.get('/health', (req, res) => {
   res.json({ ok: true, service: 'local-writer', cwd: process.cwd() });

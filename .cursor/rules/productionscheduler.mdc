@@ -1,0 +1,378 @@
+---
+alwaysApply: true
+---
+
+🛠 Project Rules – Production Scheduler
+
+1️⃣ Machine Eligibility
+
+Every part has a set of eligible machines in the database.
+
+Only assign sequences to machines listed as eligible for that part.
+
+2️⃣ Machine Locking
+
+Once a machine starts an operation sequence for a batch, it is locked until the sequence completes.
+
+After completion, the machine is free and can be used for other sequences or batches.
+
+3️⃣ Sequence Execution
+
+Sequences within a batch must run in order (Seq 1 → Seq 2 → …).
+
+Sequence n can only start after sequence n-1 finishes on its machine.
+
+4️⃣ No Overlapping
+
+A machine cannot run two sequences simultaneously.
+
+If the next sequence requires a busy machine, it must wait until free or assign another eligible machine.
+
+5️⃣ Batch Splitting
+
+Large orders can be split into multiple batches.
+
+Each batch keeps its sequences strictly in order and follows machine locking rules.
+
+6️⃣ Timing & Pauses
+
+Record Setup Start, Setup End, Run Start, Run End for each sequence.
+
+Include total timing, paused duration, and active work duration.
+
+If a batch cannot meet the due date due to machine availability, mark ⚠️.
+
+7️⃣ Output Format
+
+For each batch sequence, show:
+
+PartNumber | Batch_ID | Sequence | Machine | Setup Start | Setup End | Run Start | Run End | Timing | Due Date | Status
+
+
+Highlight conflicts or missed due dates with ⚠️.
+
+8️⃣ Optimization
+
+Minimize idle time for machines.
+
+Prioritize sequences to complete batches as early as possible while respecting rules above.
+
+9️⃣ Data Integrity
+
+Only Admin can import or modify the master database.
+
+Operators can export schedules but cannot change master data.
+
+⚡ Rule-based Scheduling Prompt (Piece-level → Batch Completion)
+
+TASK: Generate operation-wise timelines for all pieces in a batch, then compute final batch completion times.
+
+INPUT DATA (per row):
+
+PartNumber
+
+Order_Quantity (e.g., 250)
+
+Batch_ID
+
+Batch_Qty (same as Order_Quantity if 1 batch)
+
+OperationSeq
+
+OperationName
+
+Machine
+
+Person
+
+SetupTime_min (per operation, fixed once per batch)
+
+CycleTime_min (per piece, repeated for each unit)
+
+RULES:
+
+For each (PartNumber, Batch_ID), sort rows by OperationSeq ascending.
+
+Operation rules:
+
+One-time setup duration (SetupTime_min).
+
+Total processing = CycleTime_min × Batch_Qty.
+
+Flow-shop style: piece i finishes Op_k → can move to Op_(k+1) if machine setup done.
+
+Timeline Construction:
+
+Operation 1:
+
+SetupStart = provided start (or earliest shift start)
+SetupEnd   = SetupStart + SetupTime_min
+Piece1_RunStart = SetupEnd
+Piece1_RunEnd   = Piece1_RunStart + CycleTime_min
+PieceN_RunEnd   = Piece(N-1)_RunEnd + CycleTime_min
+Batch_RunEnd    = PieceN_RunEnd
+
+
+Operation n > 1:
+
+SetupStart = max(time piece1 available from Op(n-1), provided SetupStart)
+SetupEnd   = SetupStart + SetupTime_min
+Piece1_RunStart = max(SetupEnd, Piece1_Arrival_from_prev)
+Piece1_RunEnd   = Piece1_RunStart + CycleTime_min
+Piece i_RunStart = max(Piece(i-1)_RunEnd, Piece i_Arrival_from_prev, SetupEnd)
+Piece i_RunEnd   = Piece i_RunStart + CycleTime_min
+Batch_RunEnd = PieceN_RunEnd
+
+
+Output per OperationSeq:
+
+SetupStart, SetupEnd
+
+RunStart (piece1 start)
+
+RunEnd (last piece finish = batch complete)
+
+Optional: piece-level times for diagnostics
+
+Constraints:
+
+RunEnd(Op n) ≥ RunEnd(Op n-1)
+
+If machine calendars / shifts exist, insert pauses into setup and run
+
+OUTPUT FORMAT:
+
+CSV: PartNumber, Batch_ID, OperationSeq, OperationName, Machine, SetupStart, SetupEnd, RunStart, RunEnd, Notes
+
+
+EXAMPLE (Batch size 3 demo):
+
+Op1: Setup 07:00–08:10, RunEnd batch = 09:04
+
+Op2: Setup 08:28–09:38, RunEnd batch = 10:08
+
+Op3: Setup 09:48–10:58, RunEnd batch = 11:01
+
+Op4: Setup 10:59–12:09, RunEnd batch = 12:12
+
+⚡ Feeding Batch_Qty = 250 scales automatically (250× cycle time)."
+
+
+⚙️ Global Advanced Settings – Scheduler
+
+1️⃣ Start Date & Time
+
+Format: mm/dd/yyyy, --:-- --
+
+Defines the initial reference for batch scheduling.
+
+2️⃣ Setup Window (People-Dependent)
+
+Example: 06:00–22:00
+
+Setup operations only run within these hours.
+
+Only operators assigned to that shift can perform setup.
+
+3️⃣ Production Window (Machine-Dependent)
+
+Example: 24×7 Continuous
+
+Production runs respect machine calendars.
+
+If machine is under breakdown or outside its allowed window, operations are paused.
+
+4️⃣ Breakdown Machines
+
+List of machines that may be unavailable: VMC 1, VMC 2, VMC 3, VMC 4, VMC 5, VMC 6, VMC 7,VMC 8,VMC 9,VMC 10.
+
+Breakdown Date-Time Range: e.g., 28/08/2025 10:00–14:00
+
+Scheduler must skip or delay operations on these machines during breakdown.
+
+5️⃣ Holidays
+
+Example: 30/08/2025, 31/08/2025
+
+No operations or setups on holidays.
+
+Time automatically skipped for calculations.
+
+6️⃣ Shifts & Operators
+
+Shift 1 (Morning): 06:00–14:00 → Operators: A, B
+
+Shift 2 (Afternoon): 14:00–22:00 → Operators: C, D
+
+Shift 3 (Night, optional): 22:00–06:00 → Operators: Night team if active
+
+7️⃣ Integration with Rule-based Scheduling
+
+SetupStart and RunStart must respect Setup Window and Operator shifts.
+
+Machine pauses due to breakdowns or holidays pause both setup and run.
+
+Piece-level timelines automatically adjust to windows.
+
+Scheduler enforces machine locking while respecting shifts and breakdowns.
+
+8️⃣ Save Settings
+
+💾 After configuring, save to master project database.
+
+Only Admin can modify; Operators can view/export schedules.🛠 Project Rules – Production Scheduler
+
+1️⃣ Machine Eligibility
+
+Every part has a set of eligible machines in the database.
+
+Only assign sequences to machines listed as eligible for that part.
+
+2️⃣ Machine Locking
+
+Once a machine starts an operation sequence for a batch, it is locked until the sequence completes.
+
+After completion, the machine is free and can be used for other sequences or batches.
+
+3️⃣ Sequence Execution
+
+Sequences within a batch must run in order (Seq 1 → Seq 2 → …).
+
+Sequence n can only start after sequence n-1 finishes on its machine.
+
+4️⃣ No Overlapping
+
+A machine cannot run two sequences simultaneously.
+
+If the next sequence requires a busy machine, it must wait until free or assign another eligible machine.
+
+5️⃣ Batch Splitting
+
+Large orders can be split into multiple batches.
+
+Each batch keeps its sequences strictly in order and follows machine locking rules.
+
+6️⃣ Timing & Pauses
+
+Record Setup Start, Setup End, Run Start, Run End for each sequence.
+
+Include total timing, paused duration, and active work duration.
+
+If a batch cannot meet the due date due to machine availability, mark ⚠️.
+
+7️⃣ Output Format
+
+For each batch sequence, show:
+
+PartNumber | Batch_ID | Sequence | Machine | Setup Start | Setup End | Run Start | Run End | Timing | Due Date | Status
+
+
+Highlight conflicts or missed due dates with ⚠️.
+
+8️⃣ Optimization
+
+Minimize idle time for machines.
+
+Prioritize sequences to complete batches as early as possible while respecting rules above.
+
+9️⃣ Data Integrity
+
+Only Admin can import or modify the master database.
+
+Operators can export schedules but cannot change master data.
+
+⚡ Rule-based Scheduling Prompt (Piece-level → Batch Completion)
+
+TASK: Generate operation-wise timelines for all pieces in a batch, then compute final batch completion times.
+
+INPUT DATA (per row):
+
+PartNumber
+
+Order_Quantity (e.g., 250)
+
+Batch_ID
+
+Batch_Qty (same as Order_Quantity if 1 batch)
+
+OperationSeq
+
+OperationName
+
+Machine
+
+Person
+
+SetupTime_min (per operation, fixed once per batch)
+
+CycleTime_min (per piece, repeated for each unit)
+
+RULES:
+
+For each (PartNumber, Batch_ID), sort rows by OperationSeq ascending.
+
+Operation rules:
+
+One-time setup duration (SetupTime_min).
+
+Total processing = CycleTime_min × Batch_Qty.
+
+Flow-shop style: piece i finishes Op_k → can move to Op_(k+1) if machine setup done.
+
+Timeline Construction:
+
+Operation 1:
+
+SetupStart = provided start (or earliest shift start)
+SetupEnd   = SetupStart + SetupTime_min
+Piece1_RunStart = SetupEnd
+Piece1_RunEnd   = Piece1_RunStart + CycleTime_min
+PieceN_RunEnd   = Piece(N-1)_RunEnd + CycleTime_min
+Batch_RunEnd    = PieceN_RunEnd
+
+
+Operation n > 1:
+
+SetupStart = max(time piece1 available from Op(n-1), provided SetupStart)
+SetupEnd   = SetupStart + SetupTime_min
+Piece1_RunStart = max(SetupEnd, Piece1_Arrival_from_prev)
+Piece1_RunEnd   = Piece1_RunStart + CycleTime_min
+Piece i_RunStart = max(Piece(i-1)_RunEnd, Piece i_Arrival_from_prev, SetupEnd)
+Piece i_RunEnd   = Piece i_RunStart + CycleTime_min
+Batch_RunEnd = PieceN_RunEnd
+
+
+Output per OperationSeq:
+
+SetupStart, SetupEnd
+
+RunStart (piece1 start)
+
+RunEnd (last piece finish = batch complete)
+
+Optional: piece-level times for diagnostics
+
+Constraints:
+
+RunEnd(Op n) ≥ RunEnd(Op n-1)
+
+If machine calendars / shifts exist, insert pauses into setup and run
+
+OUTPUT FORMAT:
+
+CSV: PartNumber, Batch_ID, OperationSeq, OperationName, Machine, SetupStart, SetupEnd, RunStart, RunEnd, Notes
+
+
+EXAMPLE (Batch size 3 demo):
+
+Op1: Setup 07:00–08:10, RunEnd batch = 09:04
+
+Op2: Setup 08:28–09:38, RunEnd batch = 10:08
+
+Op3: Setup 09:48–10:58, RunEnd batch = 11:01
+
+Op4: Setup 10:59–12:09, RunEnd batch = 12:12
+
+⚡ Feeding Batch_Qty = 250 scales automatically (250× cycle time)."
+
+

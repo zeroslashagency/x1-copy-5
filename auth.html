@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Production Scheduler</title>
+    <!-- Load Supabase JS from CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script>
+    // Create a global Supabase client initialization function
+    function initSupabase() {
+        const SUPABASE_URL = 'https://sxnaopzgaddvziplrlbe.supabase.co';
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN4bmFvcHpnYWRkdnppcGxybGJlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY2MjUyODQsImV4cCI6MjA3MjIwMTI4NH0.o3UAaJtrNpVh_AsljSC1oZNkJPvQomedvtJlXTE3L6w';
+        
+        // Initialize and return the Supabase client
+        const client = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+            auth: {
+                autoRefreshToken: true,
+                persistSession: true,
+                detectSessionInUrl: false, // Disable URL session detection to prevent loops
+                storage: window.localStorage,
+                flowType: 'pkce' // Use PKCE flow for better security
+            }
+        });
+        
+        // Store the client globally
+        window.supabase = client;
+        return client;
+    }
+    </script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .auth-container {
+            background: white;
+            padding: 2.5rem;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 400px;
+            text-align: center;
+        }
+        .logo {
+            font-size: 2.5rem;
+            margin-bottom: 1.5rem;
+            color: #3b82f6;
+        }
+        h1 {
+            margin: 0 0 1.5rem;
+            color: #1f2937;
+            font-size: 1.5rem;
+        }
+        .form-group {
+            margin-bottom: 1.25rem;
+            text-align: left;
+        }
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: #4b5563;
+            font-weight: 500;
+        }
+        input {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            font-size: 1rem;
+            transition: border-color 0.2s;
+        }
+        input:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+        }
+        button {
+            width: 100%;
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 0.875rem;
+            border-radius: 6px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+            margin-top: 0.5rem;
+        }
+        button:hover {
+            background: #2563eb;
+        }
+        .divider {
+            margin: 1.5rem 0;
+            text-align: center;
+            position: relative;
+        }
+        .divider::before {
+            content: "";
+            position: absolute;
+            top: 50%;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: #e5e7eb;
+            z-index: 1;
+        }
+        .divider span {
+            background: white;
+            padding: 0 1rem;
+            position: relative;
+            z-index: 2;
+            color: #6b7280;
+            font-size: 0.875rem;
+        }
+        .error-message {
+            color: #ef4444;
+            margin-top: 1rem;
+            font-size: 0.875rem;
+            min-height: 1.25rem;
+        }
+        .auth-footer {
+            margin-top: 1.5rem;
+            font-size: 0.875rem;
+            color: #6b7280;
+        }
+        .auth-footer a {
+            color: #3b82f6;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        .auth-footer a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="auth-container">
+        <div class="logo">🏭</div>
+        <h1>Production Scheduler</h1>
+        
+        <form id="loginForm">
+            <div class="form-group">
+                <label for="email">Email</label>
+                <input type="email" id="email" name="email" required placeholder="Enter your email">
+            </div>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required placeholder="Enter your password">
+            </div>
+            <div class="error-message" id="errorMessage"></div>
+            <button type="submit">Sign In</button>
+        </form>
+
+
+        <div class="auth-footer">
+            Don't have an account? <a href="#" id="signUpLink">Sign up</a>
+        </div>
+    </div>
+
+    <script>
+    // Prevent multiple initializations
+    (function() {
+        if (window.authInitialized) {
+            console.log('Auth already initialized');
+            return;
+        }
+        window.authInitialized = true;
+        
+        // Initialize Supabase client
+        const supabase = initSupabase();
+        window.supabase = supabase; // Make available globally
+        
+        // Wait for the DOM to be fully loaded
+        document.addEventListener('DOMContentLoaded', async function() {
+            console.log('Initializing auth...');
+            
+            // Check for logout parameter
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('logged_out') === 'true') {
+                console.log('Showing logout message');
+                const errorElement = document.getElementById('errorMessage');
+                if (errorElement) {
+                    errorElement.textContent = 'You have been successfully logged out.';
+                    errorElement.style.color = 'green';
+                    
+                    // Clear the URL without refreshing the page
+                    const cleanUrl = window.location.pathname;
+                    window.history.replaceState({}, document.title, cleanUrl);
+                }
+            }
+            
+            // Check for existing session and set up login form
+            try {
+                console.log('Checking for existing session...');
+                
+                // Check if we're already on the login page to prevent loops
+                if (window.location.pathname.endsWith('auth.html')) {
+                    // Clear any URL parameters that might cause issues
+                    if (window.location.search) {
+                        window.history.replaceState({}, document.title, window.location.pathname);
+                    }
+                    
+                    // Check for valid session in localStorage
+                    const currentSession = JSON.parse(
+                        localStorage.getItem('sb-sxnaopzgaddvziplrlbe-auth-token') || 'null'
+                    );
+                    
+                    if (currentSession?.access_token) {
+                        console.log('Found session token, verifying...');
+                        
+                        // Verify the session
+                        const { data: { user }, error: userError } = await supabase.auth.getUser();
+                        
+                        if (!userError && user) {
+                            console.log('Valid session found, redirecting to index.html');
+                            window.location.href = 'index.html';
+                            return;
+                        } else {
+                            console.log('Session verification failed, clearing session');
+                            await supabase.auth.signOut();
+                        }
+                    } else {
+                        console.log('No valid session found');
+                    }
+                }
+                
+                console.log('No active session, setting up login form');
+                // Set up login form
+                setupLoginForm();
+                
+            } catch (error) {
+                console.error('Initialization error:', error);
+                const errorElement = document.getElementById('errorMessage');
+                if (errorElement) {
+                    errorElement.textContent = 'Failed to initialize. Please refresh the page.';
+                    errorElement.style.color = '#e74c3c';
+                }
+            }
+        });
+        
+        // Handle login form submission
+        function setupLoginForm() {
+            const loginForm = document.getElementById('loginForm');
+            if (!loginForm) {
+                console.error('Login form not found');
+                return;
+            }
+            
+            const submitButton = loginForm.querySelector('button[type="submit"]');
+            const errorElement = document.getElementById('errorMessage');
+            let isSubmitting = false;
+            
+            // Remove any existing event listeners to prevent duplicates
+            const newForm = loginForm.cloneNode(true);
+            loginForm.parentNode.replaceChild(newForm, loginForm);
+            
+            // Reset form state
+            newForm.reset();
+            
+            // Add submit event listener with proper error handling
+            newForm.addEventListener('submit', async function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                // Prevent multiple submissions
+                if (isSubmitting) {
+                    console.log('Prevented duplicate form submission');
+                    return;
+                }
+                
+                isSubmitting = true;
+                
+                // Get form data
+                const formData = new FormData(newForm);
+                const email = (formData.get('email') || '').trim();
+                const password = formData.get('password');
+                
+                // Clear previous errors
+                if (errorElement) {
+                    errorElement.textContent = '';
+                }
+                
+                // Validate form
+                if (!email || !password) {
+                    if (errorElement) {
+                        errorElement.textContent = 'Please fill in all fields';
+                        errorElement.style.color = '#e74c3c';
+                    }
+                    isSubmitting = false;
+                    return;
+                }
+                
+                // Update UI
+                if (submitButton) {
+                    submitButton.disabled = true;
+                    submitButton.innerHTML = '<div class="spinner"></div> Signing in...';
+                }
+                
+                try {
+                    console.log('Attempting login for:', email);
+                    
+                    // Sign in with email and password
+                    const { data, error } = await supabase.auth.signInWithPassword({
+                        email,
+                        password
+                    });
+                    
+                    if (error) {
+                        console.error('Login error details:', error);
+                        // Handle specific error cases
+                        if (error.message.includes('Invalid login credentials') || 
+                            error.message.includes('Invalid login credentials')) {
+                            throw new Error('Incorrect email or password');
+                        }
+                        throw new Error('Login failed. Please try again.');
+                    }
+                    
+                    console.log('Login successful, verifying session...');
+                    
+                    try {
+                        // Small delay to ensure session is persisted
+                        await new Promise(resolve => setTimeout(resolve, 300));
+                        
+                        // Force refresh the session
+                        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+                        
+                        if (sessionError || !session) {
+                            console.error('Session verification failed:', sessionError);
+                            throw new Error('Session verification failed. Please try again.');
+                        }
+                        
+                        console.log('Session verified, redirecting to index.html');
+                        // Clear any URL parameters and redirect
+                        window.location.href = 'index.html';
+                        return;
+                    } catch (redirectError) {
+                        console.error('Redirect error:', redirectError);
+                        // If redirect fails, clear any partial session
+                        await supabase.auth.signOut();
+                        throw new Error('Login successful but failed to redirect. Please try again.');
+                    }
+                    
+                } catch (error) {
+                    console.error('Login error:', error);
+                    if (errorElement) {
+                        errorElement.textContent = error.message || 'Login failed. Please try again.';
+                        errorElement.style.color = '#e74c3c';
+                    }
+                } finally {
+                    if (submitButton) {
+                        submitButton.disabled = false;
+                        submitButton.textContent = 'Sign In';
+                    }
+                    isSubmitting = false;
+                }
+            });
+
+
+            // Handle sign up link
+            const signUpLink = document.getElementById('signUpLink');
+            if (signUpLink) {
+                signUpLink.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    alert('Please contact your administrator to create an account.');
+                });
+            }
+        }
+    })();
+    </script>
+</body>
+</html>

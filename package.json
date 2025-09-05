@@ -1,0 +1,16 @@
+{
+  "name": "production-scheduler-local-writer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local writer service to update data.js from browser after Google Sheets sync",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.56.1",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.1",
+    "express": "^4.19.2",
+    "pg": "^8.16.3"
+  }
+}

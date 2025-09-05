@@ -1,0 +1,68 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+⚙️ Global Advanced Settings – Scheduler
+
+1️⃣ Start Date & Time
+
+Format: mm/dd/yyyy, --:-- --
+
+Defines the initial reference for batch scheduling.
+
+2️⃣ Setup Window (People-Dependent)
+
+Example: 06:00–22:00
+
+Setup operations only run within these hours.
+
+Only operators assigned to that shift can perform setup.
+
+3️⃣ Production Window (Machine-Dependent)
+
+Example: 24×7 Continuous
+
+Production runs respect machine calendars.
+
+If machine is under breakdown or outside its allowed window, operations are paused.
+
+4️⃣ Breakdown Machines
+
+List of machines that may be unavailable: VMC 1, VMC 2, VMC 3, VMC 4, VMC 5, VMC 6, VMC 7,VMC 8,VMC 9,VMC 10.
+
+Breakdown Date-Time Range: e.g., 28/08/2025 10:00–14:00
+
+Scheduler must skip or delay operations on these machines during breakdown.
+
+5️⃣ Holidays
+
+Example: 30/08/2025, 31/08/2025
+
+No operations or setups on holidays.
+
+Time automatically skipped for calculations.
+
+6️⃣ Shifts & Operators
+
+Shift 1 (Morning): 06:00–14:00 → Operators: A, B
+
+Shift 2 (Afternoon): 14:00–22:00 → Operators: C, D
+
+Shift 3 (Night, optional): 22:00–06:00 → Operators: Night team if active
+
+7️⃣ Integration with Rule-based Scheduling
+
+SetupStart and RunStart must respect Setup Window and Operator shifts.
+
+Machine pauses due to breakdowns or holidays pause both setup and run.
+
+Piece-level timelines automatically adjust to windows.
+
+Scheduler enforces machine locking while respecting shifts and breakdowns.
+
+8️⃣ Save Settings
+
+💾 After configuring, save to master project database.
+
+Only Admin can modify; Operators can view/export schedules.

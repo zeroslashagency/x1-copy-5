@@ -1,0 +1,3308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Production Scheduler</title>
+    <!-- Add Supabase Auth UI CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/@supabase/auth-ui-shared@0.0.11/dist/components.css" />
+    <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f7fa;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 25px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            border: 1px solid #e1e8ed;
+        }
+
+        .card h2 {
+            color: #2c3e50;
+            margin-bottom: 20px;
+            font-size: 1.4em;
+            font-weight: 600;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Optional Overrides layout tuning */
+        #optionalOverridesContent {
+            grid-template-columns: repeat(3, minmax(280px, 1fr));
+            column-gap: 24px;
+            row-gap: 18px;
+            align-items: start;
+        }
+        /* Make the two range groups span two columns so fields are wider */
+        #orderBreakdownGroup { grid-column: 2 / span 2; }
+        #orderHolidayGroup { grid-column: 2 / span 2; }
+        .range-group {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            width: 100%;
+        }
+        .range-group input[type="datetime-local"] {
+            flex: 1 1 0;
+            min-width: 0; /* prevent overflow */
+        }
+        .range-group span {
+            white-space: nowrap;
+            color: #666;
+        }
+
+        label {
+            font-weight: 500;
+            margin-bottom: 5px;
+            color: #555;
+        }
+
+        input, select, textarea {
+            padding: 12px;
+            border: 2px solid #e1e8ed;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s ease;
+        }
+
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .part-input-container {
+            position: relative;
+        }
+
+        .part-suggestions {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: white;
+            border: 2px solid #e1e8ed;
+            border-top: none;
+            border-radius: 0 0 8px 8px;
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 1000;
+            display: none;
+        }
+
+        .suggestion-item {
+            padding: 10px;
+            cursor: pointer;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .suggestion-item:hover {
+            background: #f8f9fa;
+        }
+
+        .chips-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .chip {
+            background: #667eea;
+            color: white;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .chip-remove {
+            background: none;
+            border: none;
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+            padding: 0;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .chip-remove:hover {
+            background: rgba(255,255,255,0.2);
+        }
+
+        .priority-group {
+            display: flex;
+            gap: 15px;
+            margin-top: 5px;
+        }
+
+        .priority-option {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .priority-option input[type="radio"] {
+            width: auto;
+            margin: 0;
+        }
+
+        .tab-nav {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 0;
+        }
+
+        .tab-btn {
+            padding: 12px 24px;
+            border: none;
+            background: #f8f9fa;
+            color: #666;
+            border-radius: 8px 8px 0 0;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+
+        .tab-btn.active {
+            background: #667eea;
+            color: white;
+        }
+
+        .tab-btn:hover:not(.active) {
+            background: #e9ecef;
+        }
+
+        .tab-content {
+            margin-top: -25px;
+        }
+
+        small {
+            color: #888;
+            font-size: 12px;
+            margin-top: 2px;
+            display: block;
+        }
+
+        .advanced-toggle {
+            background: none;
+            border: none;
+            color: #667eea;
+            cursor: pointer;
+            font-size: 14px;
+            text-decoration: underline;
+            margin-bottom: 15px;
+        }
+
+        .advanced-options {
+            display: none;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .advanced-options.show {
+            display: grid;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            justify-content: center;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #5a6fd8;
+            transform: translateY(-1px);
+        }
+
+        .btn-success {
+            background: #27ae60;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #229954;
+            transform: translateY(-1px);
+        }
+
+        .btn-danger {
+            background: #e74c3c;
+            color: white;
+            padding: 6px 12px;
+            font-size: 12px;
+        }
+
+        .btn-danger:hover {
+            background: #c0392b;
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #545b62;
+        }
+
+        .priority-low { background: #6c757d; }
+        .priority-urgent { background: #dc3545; }
+        .priority-high { background: #fd7e14; }
+        .priority-normal { background: #28a745; }
+
+        .collapsible-header {
+            cursor: pointer;
+            user-select: none;
+            margin: 20px 0 10px 0;
+            padding: 10px;
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            transition: background-color 0.3s ease;
+        }
+
+        .collapsible-header:hover {
+            background: #e9ecef;
+        }
+
+        .collapsible-header span {
+            display: inline-block;
+            transition: transform 0.3s ease;
+            margin-right: 8px;
+        }
+
+        .optional-overrides-section {
+            margin-top: 20px;
+        }
+
+        .operation-checkboxes {
+            margin-top: 10px;
+            padding: 10px;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            background: #f8f9fa;
+        }
+
+        .operation-checkbox-item {
+            display: inline-block;
+            margin: 5px 10px 5px 0;
+        }
+
+        .operation-checkbox-item input[type="checkbox"] {
+            margin-right: 5px;
+        }
+
+        .operation-checkbox-item label {
+            font-weight: normal;
+            cursor: pointer;
+        }
+
+        .operation-dropdown-container {
+            position: relative;
+        }
+
+        .operation-selector {
+            display: flex;
+            position: relative;
+        }
+
+        .operation-selector input {
+            flex: 1;
+            border-radius: 5px 0 0 5px;
+            border-right: none;
+        }
+
+        .operation-btn {
+            background: #007bff;
+            color: white;
+            border: 1px solid #007bff;
+            border-radius: 0 5px 5px 0;
+            padding: 8px 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .operation-btn:hover:not(:disabled) {
+            background: #0056b3;
+        }
+
+        .operation-btn:disabled {
+            background: #6c757d;
+            border-color: #6c757d;
+            cursor: not-allowed;
+        }
+
+        .operation-btn.open {
+            transform: rotate(180deg);
+        }
+
+        .operation-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: white;
+            border: 1px solid #dee2e6;
+            border-top: none;
+            border-radius: 0 0 5px 5px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            z-index: 1000;
+            max-height: 250px;
+            overflow-y: auto;
+            animation: slideDown 0.2s ease-out;
+        }
+
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .operation-dropdown-item {
+            display: flex;
+            align-items: center;
+            padding: 10px 15px;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+            border-bottom: 1px solid #f1f3f4;
+        }
+
+        .operation-dropdown-item:last-child {
+            border-bottom: none;
+        }
+
+        .operation-dropdown-item:hover {
+            background-color: #f8f9fa;
+        }
+
+        .operation-dropdown-item input[type="checkbox"] {
+            margin-right: 10px;
+        }
+
+        .operation-dropdown-item label {
+            flex: 1;
+            cursor: pointer;
+            font-weight: normal;
+        }
+
+        .operation-dropdown-footer {
+            padding: 10px 15px;
+            border-top: 1px solid #dee2e6;
+            background: #f8f9fa;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .operation-dropdown-footer button {
+            padding: 5px 15px;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .btn-clear {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-apply {
+            background: #28a745;
+            color: white;
+        }
+
+        .table-container {
+            overflow-x: auto;
+            margin-top: 20px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #e1e8ed;
+        }
+
+        /* Prevent wrapping in specific table cells (dates, times, timing text) */
+        .nowrap {
+            white-space: nowrap;
+            word-break: keep-all;
+        }
+
+        th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #555;
+        }
+
+        tr:hover {
+            background: #f8f9fa;
+        }
+
+        .action-bar {
+            position: sticky;
+            bottom: 0;
+            background: white;
+            padding: 20px;
+            border-top: 2px solid #e1e8ed;
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+            margin: 20px -20px -20px -20px;
+            border-radius: 0 0 12px 12px;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+            color: #667eea;
+        }
+
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .alert {
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 10px;
+            }
+            
+            .form-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .action-bar {
+                flex-direction: column;
+            }
+            
+            .priority-group {
+                flex-direction: column;
+                gap: 10px;
+            }
+        }
+
+        /* Sync Controls Styling */
+        .sync-controls {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-left: auto;
+        }
+
+        .btn-secondary {
+            background: #6b7280;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.2s;
+        }
+
+        .btn-secondary:hover {
+            background: #4b5563;
+        }
+
+        .btn-secondary:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+        }
+
+        .sync-status {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            font-size: 12px;
+        }
+
+        .sync-status small {
+            color: #6b7280;
+            margin-top: 2px;
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        .spinning {
+            animation: spin 1s linear infinite;
+        }
+    </style>
+</head>
+<body>
+    <!-- Loading overlay -->
+    <div id="loadingOverlay" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); display: flex; justify-content: center; align-items: center; z-index: 1000; color: white; font-size: 1.5rem;">
+        Loading...
+    </div>
+
+    <div class="container">
+        <div class="card">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                <h2>Production Schedule Generator</h2>
+                <div style="display: flex; align-items: center; gap: 1rem;">
+                    <span id="userInfo" style="font-size: 0.9rem; color: #666;"></span>
+                    <button id="logoutBtn" class="btn btn-secondary" style="padding: 0.3rem 0.8rem; font-size: 0.9rem;">
+                        Logout
+                    </button>
+                </div>
+                <div class="sync-controls">
+                    <button id="refreshDataBtn" class="btn btn-secondary" onclick="refreshRoutingData()">
+                        <span id="refreshIcon">🔄</span> Refresh Data
+                    </button>
+                    <div class="sync-status">
+                        <span id="syncStatus">📊 Local Data</span>
+                        <small id="lastSync">Last sync: Never</small>
+                    </div>
+                </div>
+            </div>
+            <div class="header">
+                <h1>🏭 Production Scheduler</h1>
+                <p>Advanced Manufacturing Scheduling System</p>
+            </div>
+
+        <!-- Tab Navigation -->
+        <div class="card">
+            <div class="tab-nav">
+                <button class="tab-btn active" onclick="switchTab('orders')">📋 Orders</button>
+                <button class="tab-btn" onclick="switchTab('advanced')">⚙️ Advanced Settings</button>
+            </div>
+        </div>
+
+        <!-- Orders Tab -->
+        <div class="card tab-content" id="ordersTab">
+            <h2>📝 Order Management</h2>
+            <form id="orderForm">
+                <h3>Mandatory Fields</h3>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="partNumber">Part Number</label>
+                        <div class="part-input-container">
+                            <input type="text" id="partNumber" placeholder="Search part numbers..." required>
+                            <div class="part-suggestions" id="partSuggestions"></div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="operationSeq">Operation Sequence</label>
+                        <div class="operation-dropdown-container">
+                            <div class="operation-selector">
+                                <input type="text" id="operationSeqDisplay" placeholder="Select a part number first" readonly disabled>
+                                <button type="button" id="operationSeqBtn" class="operation-btn" onclick="toggleOperationDropdown()" disabled>
+                                    <span>▼</span>
+                                </button>
+                            </div>
+                            <div id="operationDropdown" class="operation-dropdown" style="display: none;">
+                                <!-- Dynamic operation options will be populated here -->
+                            </div>
+                        </div>
+                        <input type="hidden" id="operationSeq" value="">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="orderQuantity">Order Quantity</label>
+                        <input type="number" id="orderQuantity" min="1" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Priority</label>
+                        <div class="priority-group">
+                            <div class="priority-option">
+                                <input type="radio" id="priorityUrgent" name="priority" value="Urgent">
+                                <label for="priorityUrgent">Urgent</label>
+                            </div>
+                            <div class="priority-option">
+                                <input type="radio" id="priorityHigh" name="priority" value="High">
+                                <label for="priorityHigh">High</label>
+                            </div>
+                            <div class="priority-option">
+                                <input type="radio" id="priorityNormal" name="priority" value="Normal" checked>
+                                <label for="priorityNormal">Normal</label>
+                            </div>
+                            <div class="priority-option">
+                                <input type="radio" id="priorityLow" name="priority" value="Low">
+                                <label for="priorityLow">Low</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="dueDate">Due Date</label>
+                        <input type="date" id="dueDate" required>
+                    </div>
+                </div>
+
+                <div class="optional-overrides-section">
+                    <h3 class="collapsible-header" onclick="toggleOptionalOverrides()">
+                        <span id="overrideToggleIcon">▶</span> Optional Overrides 
+                        <small>(Click to expand advanced settings for this order)</small>
+                    </h3>
+                    <div class="form-grid" id="optionalOverridesContent" style="display: none;">
+                        <div class="form-group">
+                            <label for="orderBreakdownMachine">Breakdown Machine</label>
+                            <select id="orderBreakdownMachine">
+                                <option value="">Use Global Setting</option>
+                                <option value="VMC 1">VMC 1</option>
+                                <option value="VMC 2">VMC 2</option>
+                                <option value="VMC 3">VMC 3</option>
+                                <option value="VMC 4">VMC 4</option>
+                                <option value="VMC 5">VMC 5</option>
+                                <option value="VMC 6">VMC 6</option>
+                                <option value="VMC 7">VMC 7</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group" id="orderBreakdownGroup">
+                            <label for="orderBreakdownStart">Breakdown Date-Time Range</label>
+                            <div class="range-group">
+                                <input type="datetime-local" id="orderBreakdownStart">
+                                <span>to</span>
+                                <input type="datetime-local" id="orderBreakdownEnd">
+                            </div>
+                            <small>Choose a start and end. The machine will rest during this range.</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="orderStartDateTime">Start Date-Time</label>
+                            <input type="datetime-local" id="orderStartDateTime">
+                        </div>
+
+                        <div class="form-group" id="orderHolidayGroup">
+                            <label for="orderHolidayStart">Holiday</label>
+                            <div class="range-group">
+                                <input type="datetime-local" id="orderHolidayStart">
+                                <span>to</span>
+                                <input type="datetime-local" id="orderHolidayEnd">
+                            </div>
+                            <small>Choose a start and end. Time between will be treated as holiday for this order.</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="orderSetupWindow">Setup Availability Window</label>
+                            <input type="text" id="orderSetupWindow" placeholder="08:00-18:00">
+                            <small>Format: HH:MM-HH:MM</small>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="display:flex; gap:10px; align-items:center; margin-top:10px;">
+                    <button id="orderSubmitBtn" type="submit" class="btn btn-primary">➕ Add Order</button>
+                    <button id="cancelEditBtn" type="button" class="btn btn-secondary" style="display:none;" onclick="cancelEdit()">✖️ Cancel</button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Advanced Settings Tab -->
+        <div class="card tab-content" id="advancedTab" style="display: none;">
+            <h2>⚙️ Global Advanced Settings</h2>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="startDateTime">Start Date & Time</label>
+                    <input type="datetime-local" id="startDateTime">
+                </div>
+
+                <div class="form-group">
+                    <label for="setupAvailabilityWindow">Setup Window (People-Dependent)</label>
+                    <input type="text" id="setupAvailabilityWindow" value="06:00-22:00" required>
+                    <small>Setup operations only during these hours with shift operators</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="productionWindow">Production Window (Machine-Dependent)</label>
+                    <select id="productionWindow">
+                        <option value="24x7">24×7 Continuous</option>
+                        <option value="2-shift">2 Shifts (06:00-22:00)</option>
+                        <option value="3-shift">3 Shifts (24×7 with boundaries)</option>
+                        <option value="custom">Custom Hours</option>
+                    </select>
+                    <small>Production runs respect shift boundaries</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="breakdownMachines">Breakdown Machines</label>
+                    <select id="breakdownMachines" multiple>
+                        <option value="VMC 1">VMC 1</option>
+                        <option value="VMC 2">VMC 2</option>
+                        <option value="VMC 3">VMC 3</option>
+                        <option value="VMC 4">VMC 4</option>
+                        <option value="VMC 5">VMC 5</option>
+                        <option value="VMC 6">VMC 6</option>
+                        <option value="VMC 7">VMC 7</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="breakdownDateTime">Breakdown Date-Time Range</label>
+                    <input type="text" id="breakdownDateTime" placeholder="28/08/2025 10:00-14:00">
+                </div>
+
+                <div class="form-group">
+                    <label for="holidays">Holidays</label>
+                    <textarea id="holidays" placeholder="30/08/2025,31/08/2025"></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label for="shift1">Shift 1 (Morning)</label>
+                    <input type="text" id="shift1" value="06:00-14:00" placeholder="06:00-14:00">
+                    <small>Operators: A, B</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="shift2">Shift 2 (Afternoon)</label>
+                    <input type="text" id="shift2" value="14:00-22:00" placeholder="14:00-22:00">
+                    <small>Operators: C, D</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="shift3">Shift 3 (Night)</label>
+                    <input type="text" id="shift3" value="22:00-06:00" placeholder="22:00-06:00">
+                    <small>Optional night shift</small>
+                </div>
+            </div>
+
+            <button type="button" class="btn btn-secondary" onclick="saveAdvancedSettings()">💾 Save Settings</button>
+        </div>
+
+        <!-- Saved Orders Table -->
+        <div class="card">
+            <h2>📋 Saved Orders</h2>
+            <div class="table-container">
+                <table id="ordersTable">
+                    <thead>
+                        <tr>
+                            <th>Part Number</th>
+                            <th>Operation Seq</th>
+                            <th>Order Quantity</th>
+                            <th>Priority</th>
+                            <th>Due Date</th>
+                            <th>Breakdown Machine</th>
+                            <th>Breakdown DateTime</th>
+                            <th>Start DateTime</th>
+                            <th>Holiday</th>
+                            <th>Setup Window</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="ordersTableBody">
+                        <tr>
+                            <td colspan="11" style="text-align: center; color: #888;">No orders added yet</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Schedule Results -->
+        <div class="card" id="resultsCard" style="display: none;">
+            <h2>📊 Schedule Results</h2>
+            <div id="scheduleAlerts"></div>
+            <div class="table-container">
+                <table id="resultsTable">
+                    <thead>
+                        <tr>
+                            <th>Part Number</th>
+                            <th>Order Qty</th>
+                            <th>Priority</th>
+                            <th>Batch ID</th>
+                            <th>Batch Qty</th>
+                            <th>Operation Seq</th>
+                            <th>Operation Name</th>
+                            <th>Machine</th>
+                            <th>Person</th>
+                            <th>Setup Start</th>
+                            <th>Setup End</th>
+                            <th>Run Start</th>
+                            <th>Run End</th>
+                            <th>Timing</th>
+                            <th>Due Date</th>
+                        </tr>
+                    </thead>
+                    <tbody id="resultsTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Loading Indicator -->
+        <div class="loading" id="loadingIndicator">
+            <div class="spinner"></div>
+            <p>Processing schedule...</p>
+        </div>
+
+        <!-- Action Bar -->
+        <div class="action-bar">
+            <button class="btn btn-success" onclick="runSchedule()">
+                ▶️ Run Schedule
+            </button>
+            <button class="btn btn-secondary" onclick="exportToExcel()" id="exportBtn" disabled>
+                ⬇️ Export Excel
+            </button>
+        </div>
+    </div>
+
+
+    <!-- Add Supabase client -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- Initialize Supabase first -->
+    <script>
+        // Create a global Supabase client initialization function
+        function initSupabase() {
+            const SUPABASE_URL = 'https://sxnaopzgaddvziplrlbe.supabase.co';
+            const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN4bmFvcHpnYWRkdnppcGxybGJlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY2MjUyODQsImV4cCI6MjA3MjIwMTI4NH0.o3UAaJtrNpVh_AsljSC1oZNkJPvQomedvtJlXTE3L6w';
+            
+            // Initialize and return the Supabase client
+            return supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+                auth: {
+                    autoRefreshToken: true,
+                    persistSession: true,
+                    detectSessionInUrl: false, // Disable URL session detection to prevent redirect loops
+                    storage: window.localStorage
+                }
+            });
+        }
+        
+        // Initialize Supabase immediately
+        try {
+            const supabase = initSupabase();
+            window.supabase = supabase; // Make available globally
+            console.log('Supabase initialized successfully');
+            
+            // Check for session in URL hash and clear it to prevent redirect loops
+            if (window.location.hash) {
+                const hash = window.location.hash;
+                if (hash.includes('access_token') || hash.includes('error=')) {
+                    // Clear the hash without refreshing
+                    history.replaceState(null, null, ' ');
+                }
+            }
+        } catch (error) {
+            console.error('Failed to initialize Supabase:', error);
+            // Show error to user
+            const errorElement = document.createElement('div');
+            errorElement.style.color = 'red';
+            errorElement.style.padding = '20px';
+            errorElement.style.textAlign = 'center';
+            errorElement.textContent = 'Failed to initialize the application. Please refresh the page or contact support.';
+            document.body.prepend(errorElement);
+        }
+    </script>
+    
+    <!-- Load other scripts -->
+    <script src="app.js"></script>
+    <script src="data.js"></script>
+    <script src="x10-browser.js"></script>
+    
+    <script>
+        // Initialize the app after checking authentication
+        async function initializeApp() {
+            try {
+                // Wait for Supabase to be fully initialized
+                if (!window.supabase) {
+                    console.error('Supabase client not initialized');
+                    throw new Error('Authentication service not available');
+                }
+                
+                // Check authentication
+                const { data: { session }, error } = await window.supabase.auth.getSession();
+                
+                if (error) {
+                    console.error('Error getting session:', error);
+                    window.location.href = 'auth.html';
+                    return;
+                }
+                
+                if (!session) {
+                    console.log('No active session, redirecting to login');
+                    // Clear any existing session data
+                    await window.supabase.auth.signOut();
+                    window.location.href = 'auth.html';
+                    return;
+                }
+                
+                console.log('User authenticated, proceeding to app');
+
+                // Hide loading overlay when app is initialized
+                const loadingOverlay = document.getElementById('loadingOverlay');
+                if (loadingOverlay) {
+                    loadingOverlay.style.display = 'none';
+                }
+                
+                // Initialize your existing app
+                loadPersistedRoutingData();
+                loadPersistedLastSync();
+                
+                // Check if we have persisted data
+                if (window.OP_MASTER && window.OP_MASTER.length > 0) {
+                    // Update UI with existing data
+                    updateOrdersTable();
+                    initializeAutoSync();
+                } else {
+                    // Try to load data if none exists
+                    refreshRoutingData();
+                }
+                
+                // Set default due date
+                setDefaultDueDate();
+            } catch (error) {
+                console.error('Initialization error:', error);
+                window.location.href = 'auth.html';
+            }
+        }
+
+        // Start the app initialization
+        document.addEventListener('DOMContentLoaded', initializeApp);
+    </script>
+
+    <script>
+        // Global variables
+        let savedOrders = [];
+        let scheduleResults = [];
+        let selectedPartNumber = '';
+        let editingOrderId = null; // when not null, form is in edit mode
+        let advancedSettings = {
+            startDateTime: null,
+            setupAvailabilityWindow: '06:00-22:00',
+            breakdownMachines: [],
+            breakdownDateTime: '',
+            holidays: '',
+            shift1: '06:00-14:00',
+            shift2: '14:00-22:00',
+            shift3: '22:00-06:00'
+        };
+
+        // Helper: get unique part numbers from the current operations master data
+        function getAvailablePartNumbers() {
+            try {
+                return [...new Set((window.OP_MASTER || []).map(op => String(op.PartNumber).trim()))].sort();
+            } catch (e) {
+                console.warn('Failed to compute available part numbers:', e);
+                return [];
+            }
+        }
+
+        // Initialize the application
+        document.addEventListener('DOMContentLoaded', function() {
+            setupPartNumberSearch();
+            setupFormSubmission();
+            setDefaultDueDate();
+            setupDueDateField(); // Setup Due Date field with auto-default functionality
+            loadAdvancedSettings(); // Load saved advanced settings
+        });
+
+        function setDefaultDueDate() {
+            const oneWeekFromNow = new Date();
+            oneWeekFromNow.setDate(oneWeekFromNow.getDate() + 7); // One week from now
+            document.getElementById('dueDate').value = oneWeekFromNow.toISOString().split('T')[0];
+        }
+
+        function setupDueDateField() {
+            const dueDateInput = document.getElementById('dueDate');
+            
+            // Set default value if field is empty
+            if (!dueDateInput.value) {
+                setDefaultDueDate();
+            }
+            
+            // Add event listener to set default when field becomes empty
+            dueDateInput.addEventListener('blur', function() {
+                if (!this.value) {
+                    setDefaultDueDate();
+                }
+            });
+            
+            // Add event listener to set default when field is cleared
+            dueDateInput.addEventListener('input', function() {
+                if (!this.value) {
+                    setDefaultDueDate();
+                }
+            });
+        }
+
+        function setupPartNumberSearch() {
+            const partInput = document.getElementById('partNumber');
+            const suggestions = document.getElementById('partSuggestions');
+
+            partInput.addEventListener('input', function() {
+                const query = this.value.toLowerCase();
+                const parts = getAvailablePartNumbers();
+                let matches = [];
+                if (query.length === 0) {
+                    matches = parts.slice(0, 20);
+                } else {
+                    matches = parts.filter(part => part.toLowerCase().includes(query));
+                }
+
+                if (matches.length > 0) {
+                    suggestions.innerHTML = matches.map(part => 
+                        `<div class="suggestion-item" onclick="selectPartNumber('${part}')">${part}</div>`
+                    ).join('');
+                    suggestions.style.display = 'block';
+                } else {
+                    suggestions.style.display = 'none';
+                }
+            });
+
+            // Show initial list on focus
+            partInput.addEventListener('focus', function() {
+                const parts = getAvailablePartNumbers();
+                const matches = parts.slice(0, 20);
+                if (matches.length > 0) {
+                    suggestions.innerHTML = matches.map(part => 
+                        `<div class="suggestion-item" onclick="selectPartNumber('${part}')">${part}</div>`
+                    ).join('');
+                    suggestions.style.display = 'block';
+                }
+            });
+
+            // Hide suggestions when clicking outside
+            document.addEventListener('click', function(e) {
+                if (!e.target.closest('.part-input-container')) {
+                    suggestions.style.display = 'none';
+                }
+            });
+        }
+
+        function selectPartNumber(partNumber) {
+            selectedPartNumber = partNumber;
+            document.getElementById('partNumber').value = partNumber;
+            document.getElementById('partSuggestions').style.display = 'none';
+            
+            // Populate operation sequences for selected part
+            populateOperationSequences(partNumber);
+        }
+
+        let availableOperations = [];
+
+        function populateOperationSequences(partNumber) {
+            const operationSeqDisplay = document.getElementById('operationSeqDisplay');
+            const operationSeqBtn = document.getElementById('operationSeqBtn');
+            
+            // Get all operations for this part number
+            availableOperations = window.OP_MASTER.filter(op => op.PartNumber === partNumber);
+            
+            if (availableOperations.length === 0) {
+                operationSeqDisplay.placeholder = 'No operations found';
+                operationSeqBtn.disabled = true;
+                return;
+            }
+            
+            // Sort operations by sequence
+            availableOperations.sort((a, b) => a.OperationSeq - b.OperationSeq);
+            
+            // Enable the button and update placeholder
+            operationSeqDisplay.placeholder = 'Click to select operations';
+            operationSeqDisplay.value = 'All operations';
+            operationSeqBtn.disabled = false;
+            
+            // Set default value
+            document.getElementById('operationSeq').value = '';
+        }
+
+        function toggleOperationDropdown() {
+            if (availableOperations.length === 0) return;
+            
+            const dropdown = document.getElementById('operationDropdown');
+            const btn = document.getElementById('operationSeqBtn');
+            
+            if (dropdown.style.display === 'none') {
+                populateDropdownContent();
+                dropdown.style.display = 'block';
+                btn.classList.add('open');
+            } else {
+                dropdown.style.display = 'none';
+                btn.classList.remove('open');
+            }
+        }
+
+        function populateDropdownContent() {
+            const dropdown = document.getElementById('operationDropdown');
+            
+            // Create dropdown content
+            let dropdownHTML = `
+                <div class="operation-dropdown-item" onclick="toggleDropdownItem(this, '')">
+                    <input type="checkbox" id="dropdown_all" value="" ${document.getElementById('operationSeq').value === '' ? 'checked' : ''}>
+                    <label><strong>All Operations</strong></label>
+                </div>
+            `;
+            
+            availableOperations.forEach(op => {
+                const currentValue = document.getElementById('operationSeq').value;
+                const isChecked = currentValue.includes(op.OperationSeq.toString());
+                
+                dropdownHTML += `
+                    <div class="operation-dropdown-item" onclick="toggleDropdownItem(this, '${op.OperationSeq}')">
+                        <input type="checkbox" id="dropdown_op_${op.OperationSeq}" value="${op.OperationSeq}" ${isChecked ? 'checked' : ''}>
+                        <label>Op ${op.OperationSeq}: ${op.OperationName}</label>
+                    </div>
+                `;
+            });
+            
+            dropdownHTML += `
+                <div class="operation-dropdown-footer">
+                    <button type="button" class="btn-clear" onclick="clearAllOperations()">Clear All</button>
+                    <button type="button" class="btn-apply" onclick="applyOperationSelection()">OK</button>
+                </div>
+            `;
+            
+            dropdown.innerHTML = dropdownHTML;
+        }
+
+        function toggleDropdownItem(item, value) {
+            const checkbox = item.querySelector('input[type="checkbox"]');
+            checkbox.checked = !checkbox.checked;
+            
+            if (value === '') {
+                // All operations selected
+                if (checkbox.checked) {
+                    // Uncheck all individual operations
+                    document.querySelectorAll('#operationDropdown input[type="checkbox"]:not(#dropdown_all)').forEach(cb => {
+                        cb.checked = false;
+                    });
+                }
+            } else {
+                // Individual operation selected
+                if (checkbox.checked) {
+                    // Uncheck "All operations"
+                    document.getElementById('dropdown_all').checked = false;
+                }
+            }
+        }
+
+        function clearAllOperations() {
+            document.querySelectorAll('#operationDropdown input[type="checkbox"]').forEach(cb => {
+                cb.checked = false;
+            });
+            document.getElementById('dropdown_all').checked = true;
+        }
+
+        function applyOperationSelection() {
+            const allCheckbox = document.getElementById('dropdown_all');
+            const operationCheckboxes = document.querySelectorAll('#operationDropdown input[type="checkbox"]:not(#dropdown_all):checked');
+            
+            const operationSeqDisplay = document.getElementById('operationSeqDisplay');
+            const operationSeqHidden = document.getElementById('operationSeq');
+            
+            console.log('Applying operation selection...');
+            console.log('All checkbox checked:', allCheckbox?.checked);
+            console.log('Selected operation checkboxes:', operationCheckboxes.length);
+            
+            if (allCheckbox?.checked || operationCheckboxes.length === 0) {
+                operationSeqDisplay.value = 'All operations';
+                operationSeqHidden.value = '';
+                console.log('Set to: All operations');
+            } else {
+                const selectedOps = Array.from(operationCheckboxes).map(cb => cb.value);
+                const selectedNames = selectedOps.map(opSeq => {
+                    const op = availableOperations.find(o => o.OperationSeq.toString() === opSeq);
+                    return `Op ${opSeq}`;
+                });
+                
+                operationSeqDisplay.value = selectedNames.join(', ');
+                operationSeqHidden.value = selectedOps.join(',');
+                console.log('Set to specific operations:', selectedOps.join(','));
+                console.log('Display value:', selectedNames.join(', '));
+            }
+            
+            // Close dropdown
+            document.getElementById('operationDropdown').style.display = 'none';
+            document.getElementById('operationSeqBtn').classList.remove('open');
+        }
+
+        // Helper: derive operation sequence from current checkbox state
+        function deriveOperationSeqFromCheckboxes() {
+            const allCheckbox = document.getElementById('dropdown_all');
+            const operationCheckboxes = document.querySelectorAll('#operationDropdown input[type="checkbox"]:not(#dropdown_all):checked');
+            const operationSeqDisplay = document.getElementById('operationSeqDisplay');
+            const operationSeqHidden = document.getElementById('operationSeq');
+            if (allCheckbox && allCheckbox.checked) {
+                operationSeqDisplay.value = 'All operations';
+                operationSeqHidden.value = '';
+                return '';
+            }
+            if (operationCheckboxes && operationCheckboxes.length > 0) {
+                const selectedOps = Array.from(operationCheckboxes).map(cb => cb.value);
+                operationSeqDisplay.value = selectedOps.map(s => `Op ${s}`).join(', ');
+                operationSeqHidden.value = selectedOps.join(',');
+                return operationSeqHidden.value;
+            }
+            // Default to All if nothing selected
+            operationSeqDisplay.value = 'All operations';
+            operationSeqHidden.value = '';
+            return '';
+        }
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', function(event) {
+            const container = document.querySelector('.operation-dropdown-container');
+            if (container && !container.contains(event.target)) {
+                const dropdown = document.getElementById('operationDropdown');
+                const btn = document.getElementById('operationSeqBtn');
+                dropdown.style.display = 'none';
+                btn.classList.remove('open');
+            }
+        });
+
+        function switchTab(tabName) {
+            // Update tab buttons
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+
+            // Show/hide tab content
+            document.getElementById('ordersTab').style.display = tabName === 'orders' ? 'block' : 'none';
+            document.getElementById('advancedTab').style.display = tabName === 'advanced' ? 'block' : 'none';
+            
+            // Load advanced settings when switching to advanced tab
+            if (tabName === 'advanced') {
+                loadAdvancedSettings();
+            }
+        }
+
+        function saveAdvancedSettings() {
+            // Handle datetime-local input properly
+            const startDateTimeValue = document.getElementById('startDateTime').value;
+            let processedStartDateTime = null;
+            
+            if (startDateTimeValue) {
+                // datetime-local input returns format like "2025-09-08T06:00"
+                // We need to treat this as local time, not UTC
+                const localDate = new Date(startDateTimeValue);
+                processedStartDateTime = localDate.toISOString();
+                console.log(`[UI-DEBUG] Global Start DateTime set to: ${processedStartDateTime}`);
+            } else {
+                console.log(`[UI-DEBUG] No Global Start DateTime set`);
+            }
+            
+            advancedSettings = {
+                startDateTime: processedStartDateTime,
+                setupAvailabilityWindow: document.getElementById('setupAvailabilityWindow').value,
+                breakdownMachines: Array.from(document.getElementById('breakdownMachines').selectedOptions).map(opt => opt.value),
+                breakdownDateTime: document.getElementById('breakdownDateTime').value,
+                holidays: document.getElementById('holidays').value,
+                shift1: document.getElementById('shift1').value,
+                shift2: document.getElementById('shift2').value,
+                shift3: document.getElementById('shift3').value
+            };
+            
+            console.log(`[UI-DEBUG] Advanced settings saved:`, advancedSettings);
+            showAlert('Advanced settings saved successfully!', 'success');
+        }
+
+        function loadAdvancedSettings() {
+            // Load saved settings back into the UI
+            if (advancedSettings.startDateTime) {
+                // Convert ISO string back to datetime-local format
+                const date = new Date(advancedSettings.startDateTime);
+                const localDateTime = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+                document.getElementById('startDateTime').value = localDateTime.toISOString().slice(0, 16);
+                console.log(`[UI-DEBUG] Loaded Global Start DateTime: ${advancedSettings.startDateTime} -> ${localDateTime.toISOString().slice(0, 16)}`);
+            } else {
+                document.getElementById('startDateTime').value = '';
+            }
+            
+            document.getElementById('setupAvailabilityWindow').value = advancedSettings.setupAvailabilityWindow || '06:00-22:00';
+            document.getElementById('breakdownDateTime').value = advancedSettings.breakdownDateTime || '';
+            document.getElementById('holidays').value = advancedSettings.holidays || '';
+            document.getElementById('shift1').value = advancedSettings.shift1 || '06:00-14:00';
+            document.getElementById('shift2').value = advancedSettings.shift2 || '14:00-22:00';
+            document.getElementById('shift3').value = advancedSettings.shift3 || '22:00-06:00';
+            
+            // Handle breakdown machines selection
+            if (advancedSettings.breakdownMachines && advancedSettings.breakdownMachines.length > 0) {
+                const breakdownSelect = document.getElementById('breakdownMachines');
+                Array.from(breakdownSelect.options).forEach(option => {
+                    option.selected = advancedSettings.breakdownMachines.includes(option.value);
+                });
+            }
+        }
+
+        function toggleAdvanced() {
+            const options = document.getElementById('advancedOptions');
+            options.classList.toggle('show');
+        }
+
+        function setupFormSubmission() {
+            document.getElementById('orderForm').addEventListener('submit', function(e) {
+                e.preventDefault();
+                addOrder();
+            });
+            // Keep breakdown range always enabled; clear values if no machine selected
+            const brMachineSel = document.getElementById('orderBreakdownMachine');
+            const brStart = document.getElementById('orderBreakdownStart');
+            const brEnd = document.getElementById('orderBreakdownEnd');
+            if (brMachineSel) {
+                brMachineSel.addEventListener('change', () => {
+                    if (!brMachineSel.value) { brStart.value = ''; brEnd.value = ''; }
+                });
+            }
+        }
+
+        // Build breakdown range string like: "YYYY-MM-DD HH:MM → YYYY-MM-DD HH:MM"
+        function buildBreakdownRangeString() {
+            const machine = document.getElementById('orderBreakdownMachine').value;
+            const s = document.getElementById('orderBreakdownStart').value;
+            const e = document.getElementById('orderBreakdownEnd').value;
+            if (!machine) return null; // machine not specified => treat as Global
+            if (!s || !e) return null; // incomplete
+            const start = new Date(s);
+            const end = new Date(e);
+            if (!(start instanceof Date) || isNaN(start) || !(end instanceof Date) || isNaN(end) || start >= end) return null;
+            const startStr = s.replace('T', ' ');
+            const endStr = e.replace('T', ' ');
+            return `${startStr} → ${endStr}`;
+        }
+
+        // Parse stored range back into datetime-local inputs
+        function parseBreakdownRangeToInputs(rangeStr) {
+            if (!rangeStr || typeof rangeStr !== 'string') return { startVal: '', endVal: '' };
+            const s = rangeStr.trim();
+            let sep = '';
+            if (s.includes('→')) sep = '→';
+            else if (s.includes(' - ')) sep = ' - ';
+            else if (s.toLowerCase().includes(' to ')) sep = ' to ';
+            if (!sep) return { startVal: '', endVal: '' };
+            const parts = s.split(sep);
+            if (parts.length !== 2) return { startVal: '', endVal: '' };
+            return { startVal: toLocalInput(parts[0].trim()), endVal: toLocalInput(parts[1].trim()) };
+        }
+
+        function toLocalInput(str) {
+            if (!str) return '';
+            // If already like YYYY-MM-DDTHH:MM
+            if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(str)) return str;
+            // If like YYYY-MM-DD HH:MM
+            if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(str)) return str.replace(' ', 'T');
+            // If like DD/MM/YYYY HH:MM
+            const m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4}) (\d{1,2}):(\d{2})$/);
+            if (m) {
+                const dd = m[1].padStart(2, '0');
+                const mm = m[2].padStart(2, '0');
+                const yyyy = m[3];
+                const HH = m[4].padStart(2, '0');
+                const MM = m[5];
+                return `${yyyy}-${mm}-${dd}T${HH}:${MM}`;
+            }
+            // Fallback: try Date
+            const d = new Date(str);
+            if (isNaN(d)) return '';
+            const yyyy = d.getFullYear();
+            const mm = String(d.getMonth() + 1).padStart(2, '0');
+            const dd = String(d.getDate()).padStart(2, '0');
+            const HH = String(d.getHours()).padStart(2, '0');
+            const MM = String(d.getMinutes()).padStart(2, '0');
+            return `${yyyy}-${mm}-${dd}T${HH}:${MM}`;
+        }
+
+        // Build holiday range string like breakdown, but no enabling condition
+        function buildHolidayRangeString() {
+            const s = document.getElementById('orderHolidayStart').value;
+            const e = document.getElementById('orderHolidayEnd').value;
+            if (!s || !e) return null;
+            const start = new Date(s);
+            const end = new Date(e);
+            if (!(start instanceof Date) || isNaN(start) || !(end instanceof Date) || isNaN(end) || start >= end) return null;
+            return `${s.replace('T',' ')} → ${e.replace('T',' ')}`;
+        }
+
+        function parseHolidayRangeToInputs(rangeStr) {
+            if (!rangeStr || typeof rangeStr !== 'string') return { startVal: '', endVal: '' };
+            const s = rangeStr.trim();
+            let sep = '';
+            if (s.includes('→')) sep = '→';
+            else if (s.includes(' - ')) sep = ' - ';
+            else if (s.toLowerCase().includes(' to ')) sep = ' to ';
+            if (!sep) return { startVal: '', endVal: '' };
+            const parts = s.split(sep);
+            if (parts.length !== 2) return { startVal: '', endVal: '' };
+            return { startVal: toLocalInput(parts[0].trim()), endVal: toLocalInput(parts[1].trim()) };
+        }
+
+        function addOrder() {
+            // Validate mandatory fields
+            if (!selectedPartNumber) {
+                alert('Please select a part number');
+                return;
+            }
+
+            const quantity = parseInt(document.getElementById('orderQuantity').value);
+            if (!quantity || quantity <= 0) {
+                alert('Please enter a valid order quantity');
+                return;
+            }
+
+            const priorityElement = document.querySelector('input[name="priority"]:checked');
+            if (!priorityElement) {
+                alert('Please select a priority');
+                return;
+            }
+
+            const dueDate = document.getElementById('dueDate').value;
+            if (!dueDate) {
+                alert('Please select a due date');
+                return;
+            }
+
+            // Ensure latest checkbox selections are captured even if OK wasn't clicked
+            let operationSeq = document.getElementById('operationSeq').value;
+            try {
+                // If the dropdown exists, derive from its current checkbox state
+                if (document.getElementById('operationDropdown')) {
+                    operationSeq = deriveOperationSeqFromCheckboxes();
+                }
+            } catch (e) {
+                console.warn('Failed deriving operation sequence from checkboxes, using hidden value:', e);
+            }
+            
+            // Debug: Check what operation sequence value we're getting
+            console.log('Order submission - operationSeq value:', operationSeq);
+            console.log('Order submission - operationSeqDisplay value:', document.getElementById('operationSeqDisplay').value);
+            
+            // Filter operations based on selection
+            const filteredOperations = getFilteredOperations(selectedPartNumber, operationSeq);
+            if (filteredOperations.length === 0) {
+                alert('No operations found for the selected criteria. Please check your operation selection.');
+                return;
+            }
+            
+            console.log('Order submission - Final filtered operations:', filteredOperations.map(op => `Op ${op.OperationSeq}: ${op.OperationName}`));
+
+            // Capture optional overrides
+            const order = {
+                id: editingOrderId !== null ? editingOrderId : Date.now(),
+                partNumber: selectedPartNumber,
+                operationSeq: operationSeq || null,
+                filteredOperations: filteredOperations, // Store filtered operations
+                quantity: quantity,
+                priority: priorityElement.value,
+                dueDate: dueDate,
+                // Optional overrides (null if blank, will use global settings)
+                breakdownMachine: document.getElementById('orderBreakdownMachine').value || null,
+                breakdownDateTime: buildBreakdownRangeString(),
+                startDateTime: document.getElementById('orderStartDateTime').value || null,
+                holidayRange: buildHolidayRangeString(),
+                setupWindow: document.getElementById('orderSetupWindow').value || null
+            };
+
+            if (editingOrderId !== null) {
+                // Update existing order
+                const idx = savedOrders.findIndex(o => o.id === editingOrderId);
+                if (idx !== -1) savedOrders[idx] = order; else savedOrders.push(order);
+                updateOrdersTable();
+                exitEditMode();
+                showAlert('Order updated successfully! Click "Run Schedule" to generate results.', 'success');
+            } else {
+                // Create new order
+                savedOrders.push(order);
+                updateOrdersTable();
+                resetForm();
+                showAlert('Order added successfully!', 'success');
+            }
+        }
+
+        function getFilteredOperations(partNumber, operationSeq) {
+            // Get all operations for this part number from master routing
+            const allOperations = window.OP_MASTER.filter(op => op.PartNumber === partNumber);
+            
+            console.log(`Found ${allOperations.length} total operations for ${partNumber}:`, 
+                allOperations.map(op => `Op ${op.OperationSeq}: ${op.OperationName}`));
+            
+            if (!operationSeq || operationSeq === '') {
+                // "All operations" selected - include everything
+                console.log('Selected: ALL operations');
+                return allOperations.sort((a, b) => a.OperationSeq - b.OperationSeq);
+            } else {
+                // Specific operations selected (e.g., "1,2" or "3,4")
+                const selectedSeqs = operationSeq.split(',').map(seq => parseInt(seq.trim()));
+                console.log('Selected operation sequences:', selectedSeqs);
+                
+                const filteredOps = allOperations.filter(op => selectedSeqs.includes(op.OperationSeq));
+                console.log(`Filtered to ${filteredOps.length} operations:`, 
+                    filteredOps.map(op => `Op ${op.OperationSeq}: ${op.OperationName}`));
+                
+                // CRITICAL: Only return operations that match the selected sequences
+                // This prevents any excluded operations from appearing in results
+                return filteredOps.sort((a, b) => a.OperationSeq - b.OperationSeq);
+            }
+        }
+
+        function toggleOptionalOverrides() {
+            const content = document.getElementById('optionalOverridesContent');
+            const icon = document.getElementById('overrideToggleIcon');
+            
+            if (content.style.display === 'none') {
+                content.style.display = 'grid';
+                icon.textContent = '▼';
+                icon.style.transform = 'rotate(90deg)';
+            } else {
+                content.style.display = 'none';
+                icon.textContent = '▶';
+                icon.style.transform = 'rotate(0deg)';
+            }
+        }
+
+        function resetForm() {
+            document.getElementById('orderForm').reset();
+            selectedPartNumber = '';
+            setDefaultDueDate();
+            // Clear holiday range explicitly (since reset may not affect datetime-local consistently across browsers)
+            const holStart = document.getElementById('orderHolidayStart');
+            const holEnd = document.getElementById('orderHolidayEnd');
+            if (holStart) holStart.value = '';
+            if (holEnd) holEnd.value = '';
+            document.querySelector('input[name="priority"][value="Normal"]').checked = true;
+            
+            // Reset optional overrides section to collapsed state
+            document.getElementById('optionalOverridesContent').style.display = 'none';
+            document.getElementById('overrideToggleIcon').textContent = '▶';
+            document.getElementById('overrideToggleIcon').style.transform = 'rotate(0deg)';
+        }
+
+        function updateOrdersTable() {
+            const tbody = document.getElementById('ordersTableBody');
+            
+            if (savedOrders.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="11" style="text-align: center; color: #888;">No orders added yet</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = savedOrders.map(order => {
+                // Display operation sequences more clearly
+                let operationDisplay = 'All';
+                if (order.filteredOperations && order.filteredOperations.length > 0) {
+                    // Prefer the actual filtered ops list for accuracy
+                    operationDisplay = order.filteredOperations.map(op => `Op ${op.OperationSeq}`).join(', ');
+                } else if (order.operationSeq) {
+                    operationDisplay = order.operationSeq;
+                }
+                
+                return `
+                <tr>
+                    <td>${order.partNumber}</td>
+                    <td>${operationDisplay}</td>
+                    <td>${order.quantity}</td>
+                    <td><span class="priority-${order.priority.toLowerCase()}">${order.priority}</span></td>
+                    <td>${new Date(order.dueDate).toLocaleDateString()}</td>
+                    <td>${order.breakdownMachine || '<em>Global</em>'}</td>
+                    <td>${order.breakdownDateTime || '<em>Global</em>'}</td>
+                    <td>${order.startDateTime ? new Date(order.startDateTime).toLocaleString() : '<em>Global</em>'}</td>
+                    <td>${order.holidayRange || '<em>Global</em>'}</td>
+                    <td>${order.setupWindow || '<em>Global</em>'}</td>
+                    <td>
+                        <button class="btn btn-secondary" style="margin-right:6px;" onclick="editOrder(${order.id})">Edit</button>
+                        <button class="btn btn-danger" onclick="deleteOrder(${order.id})">Delete</button>
+                    </td>
+                </tr>
+                `;
+            }).join('');
+        }
+
+        function deleteOrder(orderId) {
+            if (confirm('Are you sure you want to delete this order?')) {
+                savedOrders = savedOrders.filter(order => order.id !== orderId);
+                updateOrdersTable();
+                showAlert('Order deleted successfully!', 'success');
+            }
+        }
+
+        // Enter edit mode with an existing order
+        function editOrder(orderId) {
+            const order = savedOrders.find(o => o.id === orderId);
+            if (!order) return;
+            editingOrderId = order.id;
+
+            // Show Orders tab
+            document.getElementById('ordersTab').style.display = 'block';
+            document.getElementById('advancedTab').style.display = 'none';
+
+            // Prefill fields
+            selectedPartNumber = order.partNumber;
+            const partInput = document.getElementById('partNumber');
+            partInput.value = order.partNumber;
+            partInput.disabled = true; // lock part number during edit
+
+            // Populate operations for part and set selection
+            populateOperationSequences(order.partNumber);
+            const opDisplay = document.getElementById('operationSeqDisplay');
+            const opHidden = document.getElementById('operationSeq');
+            opHidden.value = order.operationSeq || '';
+            if (!order.operationSeq || order.operationSeq === '') {
+                opDisplay.value = 'All operations';
+            } else {
+                const seqs = order.operationSeq.split(',').map(s => s.trim()).filter(Boolean);
+                opDisplay.value = seqs.map(s => `Op ${s}`).join(', ');
+            }
+
+            document.getElementById('orderQuantity').value = order.quantity;
+            const priorityValue = order.priority || 'Normal';
+            const prRadio = document.querySelector(`input[name="priority"][value="${priorityValue}"]`);
+            if (prRadio) prRadio.checked = true;
+            document.getElementById('dueDate').value = order.dueDate;
+
+            document.getElementById('orderBreakdownMachine').value = order.breakdownMachine || '';
+            // Prefill breakdown range fields
+            const { startVal, endVal } = parseBreakdownRangeToInputs(order.breakdownDateTime || '');
+            const brStart = document.getElementById('orderBreakdownStart');
+            const brEnd = document.getElementById('orderBreakdownEnd');
+            brStart.value = startVal;
+            brEnd.value = endVal;
+            const brMachineSel = document.getElementById('orderBreakdownMachine');
+            document.getElementById('orderStartDateTime').value = order.startDateTime || '';
+            // Prefill holiday range
+            const { startVal: holS, endVal: holE } = parseHolidayRangeToInputs(order.holidayRange || '');
+            const holStart = document.getElementById('orderHolidayStart');
+            const holEnd = document.getElementById('orderHolidayEnd');
+            holStart.value = holS;
+            holEnd.value = holE;
+            document.getElementById('orderSetupWindow').value = order.setupWindow || '';
+
+            // Update buttons
+            document.getElementById('orderSubmitBtn').textContent = '✔️ Update Order';
+            document.getElementById('cancelEditBtn').style.display = 'inline-flex';
+        }
+
+        function cancelEdit() { exitEditMode(); }
+
+        function exitEditMode() {
+            editingOrderId = null;
+            // unlock part input
+            const partInput = document.getElementById('partNumber');
+            partInput.disabled = false;
+            resetForm();
+            document.getElementById('orderSubmitBtn').textContent = '➕ Add Order';
+            document.getElementById('cancelEditBtn').style.display = 'none';
+        }
+
+        // Schedule only a single order
+        function runScheduleForSingleOrder(order) {
+            document.getElementById('loadingIndicator').style.display = 'block';
+            document.getElementById('resultsCard').style.display = 'none';
+
+            setTimeout(() => {
+                try {
+                    const single = processOrderSingle(order);
+                    scheduleResults = single; // show only this order
+                    displayResults();
+                    document.getElementById('exportBtn').disabled = false;
+                } catch (error) {
+                    console.error('Scheduling error (single):', error);
+                    showAlert('Error generating schedule for updated order: ' + error.message, 'error');
+                } finally {
+                    document.getElementById('loadingIndicator').style.display = 'none';
+                }
+            }, 300);
+        }
+
+        // Process a single order using the same pipeline rules
+        function processOrderSingle(order) {
+            const results = [];
+            const alerts = [];
+            const machineSchedule = {}; // Track when each machine is available
+            const operatorSchedule = {}; // Track operator availability per shift
+            const allMachines = ["VMC 1", "VMC 2", "VMC 3", "VMC 4", "VMC 5", "VMC 6", "VMC 7"];
+            allMachines.forEach(m => machineSchedule[m] = getNextShiftStart());
+            ;["A","B","C","D"].forEach(p => operatorSchedule[p] = getNextShiftStart());
+
+            let operations = Array.isArray(order.filteredOperations) ? order.filteredOperations.slice() : [];
+            if (operations.length === 0) {
+                alerts.push(`No filtered operations present for ${order.partNumber}.`);
+                return { rows: results, alerts };
+            }
+            if (order.operationSeq && order.operationSeq !== '') {
+                const selectedSeqs = order.operationSeq.split(',').map(s => parseInt(s.trim()));
+                operations = operations.filter(op => selectedSeqs.includes(op.OperationSeq));
+            }
+
+            const opResults = calculatePieceLevelScheduling(operations, order, machineSchedule, operatorSchedule);
+            opResults.forEach(opResult => {
+                machineSchedule[opResult.Machine] = opResult.actualRunEnd;
+                operatorSchedule[opResult.Person] = opResult.actualRunEnd;
+                results.push({
+                    PartNumber: order.partNumber,
+                    Order_Quantity: order.quantity,
+                    Priority: order.priority,
+                    Batch_ID: `${order.partNumber}-${opResult.OperationSeq}`,
+                    Batch_Qty: order.quantity,
+                    OperationSeq: opResult.OperationSeq,
+                    OperationName: opResult.OperationName,
+                    Machine: opResult.Machine,
+                    Person: opResult.Person,
+                    SetupStart: formatDateTime(opResult.SetupStart),
+                    SetupEnd: formatDateTime(opResult.SetupEnd),
+                    RunStart: formatDateTime(opResult.RunStart),
+                    RunEnd: formatDateTime(opResult.RunEnd),
+                    Timing: opResult.Timing,
+                    DueDate: formatDate(order.dueDate)
+                });
+            });
+            return { rows: results, alerts };
+        }
+
+        function runSchedule() {
+            if (savedOrders.length === 0) {
+                alert('Please add at least one order before running the schedule');
+                return;
+            }
+
+            document.getElementById('loadingIndicator').style.display = 'block';
+            document.getElementById('resultsCard').style.display = 'none';
+
+            // Simulate processing time
+            setTimeout(() => {
+                try {
+                    // Use the NEW scheduling engine from x10-browser.js
+                    const ordersData = savedOrders.map(order => ({
+                        partNumber: order.partNumber,
+                        quantity: order.quantity,
+                        priority: order.priority,
+                        dueDate: order.dueDate,
+                        operations: order.filteredOperations || [],
+                        breakdownMachine: order.breakdownMachine,
+                        breakdownDateTime: order.breakdownDateTime,
+                        startDateTime: order.startDateTime,
+                        holidayRange: order.holidayRange,
+                        setupWindow: order.setupWindow
+                    }));
+
+                    const globalSettings = {
+                        startDateTime: advancedSettings.startDateTime,
+                        setupWindow: advancedSettings.setupAvailabilityWindow,
+                        breakdownMachines: advancedSettings.breakdownMachines,
+                        breakdownDateTime: advancedSettings.breakdownDateTime,
+                        holidays: advancedSettings.holidays ? advancedSettings.holidays.split(',').map(h => h.trim()) : [],
+                        shifts: {
+                            shift1: advancedSettings.shift1,
+                            shift2: advancedSettings.shift2,
+                            shift3: advancedSettings.shift3
+                        }
+                    };
+
+                    // Call the NEW scheduling engine
+                    scheduleResults = window.runScheduling(ordersData, globalSettings);
+                    displayResults();
+                    document.getElementById('exportBtn').disabled = false;
+                    showAlert('Schedule generated successfully with new engine!', 'success');
+                } catch (error) {
+                    console.error('Scheduling error:', error);
+                    showAlert('Error generating schedule: ' + error.message, 'error');
+                } finally {
+                    document.getElementById('loadingIndicator').style.display = 'none';
+                }
+            }, 1000);
+        }
+
+        function processOrders() {
+            const results = [];
+            const alerts = [];
+            const machineSchedule = {}; // Track when each machine is available
+            const operatorSchedule = {}; // Track operator availability per shift
+            const operators = ["A", "B", "C", "D"];
+            
+            // Initialize machine and operator tracking
+            const allMachines = ["VMC 1", "VMC 2", "VMC 3", "VMC 4", "VMC 5", "VMC 6", "VMC 7"];
+            allMachines.forEach(machine => {
+                machineSchedule[machine] = getNextShiftStart();
+            });
+            
+            // Initialize operator schedules
+            operators.forEach(op => {
+                operatorSchedule[op] = getNextShiftStart();
+            });
+
+            // Sort orders by priority and due date
+            const sortedOrders = [...savedOrders].sort((a, b) => {
+                const priorityWeight = { Urgent: 4, High: 3, Normal: 2, Low: 1 };
+                if (priorityWeight[a.priority] !== priorityWeight[b.priority]) {
+                    return priorityWeight[b.priority] - priorityWeight[a.priority];
+                }
+                return new Date(a.dueDate) - new Date(b.dueDate);
+            });
+
+            sortedOrders.forEach(order => {
+                // CRITICAL: Use ONLY pre-filtered operations from order submission
+                // This ensures excluded operations never appear in results
+                let operations = Array.isArray(order.filteredOperations) ? order.filteredOperations.slice() : [];
+                
+                // STRICT: Never rebuild from OP_MASTER here. If empty, skip this order with an alert.
+                if (operations.length === 0) {
+                    const msg = `No filtered operations present for ${order.partNumber}. Skipping this order to enforce strict filtering.`;
+                    console.warn(msg);
+                    alerts.push(msg);
+                    return;
+                }
+                
+                if (operations.length === 0) {
+                    alerts.push(`No operations found for part number: ${order.partNumber}`);
+                    return;
+                }
+
+                // STRICT ENFORCEMENT: Only process selected operations
+                console.log(`SCHEDULING: Processing ${operations.length} operations for ${order.partNumber}:`, 
+                    operations.map(op => `Op ${op.OperationSeq}: ${op.OperationName}`));
+                console.log(`Order operationSeq setting: "${order.operationSeq}"`);
+                
+                // Final verification: ensure operations match selection
+                if (order.operationSeq && order.operationSeq !== '') {
+                    const selectedSeqs = order.operationSeq.split(',').map(seq => parseInt(seq.trim()));
+                    const beforeCount = operations.length;
+                    operations = operations.filter(op => selectedSeqs.includes(op.OperationSeq));
+                    console.log(`STRICT FILTER: Reduced from ${beforeCount} to ${operations.length} operations`);
+                    console.log(`FINAL OPERATIONS TO PROCESS:`, operations.map(op => `Op ${op.OperationSeq}`));
+                }
+
+                // Batch splitting by priority and due constraints
+                const batches = splitOrderIntoBatches(order);
+                batches.forEach((batch, idx) => {
+                    const batchId = `${order.partNumber}-${idx + 1}`;
+                    const batchOrder = { ...order, quantity: batch.qty };
+                    const operationResults = calculatePieceLevelScheduling(operations, batchOrder, machineSchedule, operatorSchedule);
+
+                    // Determine batch completion and due compliance
+                    const lastOp = operationResults[operationResults.length - 1];
+                    const batchCompletion = lastOp ? lastOp.RunEnd : null;
+                    const due = new Date(order.dueDate);
+                    const isOnTime = batchCompletion ? (new Date(batchCompletion).getTime() <= due.getTime() + (24*60*60*1000 - 1)) : true; // same-day due
+                    const dueMark = isOnTime ? '✅' : '⚠️';
+                    if (order.priority === 'Urgent' && !isOnTime && batchCompletion) {
+                        const lateMs = new Date(batchCompletion).getTime() - due.getTime();
+                        const lateHrs = Math.ceil(lateMs / 3600000);
+                        alerts.push(`High Risk: ${order.partNumber} batch ${idx + 1} expected late by ~${lateHrs}h (due ${formatDate(order.dueDate)}).`);
+                    }
+
+                    operationResults.forEach(opResult => {
+                        // Update resource schedules at each op
+                        machineSchedule[opResult.Machine] = opResult.actualRunEnd;
+                        operatorSchedule[opResult.Person] = opResult.actualRunEnd;
+
+                        results.push({
+                            PartNumber: order.partNumber,
+                            Order_Quantity: order.quantity,
+                            Priority: order.priority,
+                            Batch_ID: batchId,
+                            Batch_Qty: batch.qty,
+                            OperationSeq: opResult.OperationSeq,
+                            OperationName: opResult.OperationName,
+                            Machine: opResult.Machine,
+                            Person: opResult.Person,
+                            SetupStart: formatDateTime(opResult.SetupStart),
+                            SetupEnd: formatDateTime(opResult.SetupEnd),
+                            RunStart: formatDateTime(opResult.RunStart),
+                            RunEnd: formatDateTime(opResult.RunEnd),
+                            Timing: opResult.Timing,
+                            DueDate: `${formatDate(order.dueDate)} ${dueMark}`
+                        });
+                    });
+                });
+            });
+
+            return { rows: results, alerts: alerts };
+        }
+
+        // Split total order quantity into batches based on priority
+        function splitOrderIntoBatches(order) {
+            const qty = Number(order.quantity) || 0;
+            if (qty <= 0) return [];
+            let parts = 1;
+            switch ((order.priority || 'Normal')) {
+                case 'Urgent': parts = Math.min(4, Math.max(1, qty)); break; // up to 4 smaller batches
+                case 'High': parts = Math.min(3, Math.max(1, qty >= 3 ? 3 : qty)); break;
+                case 'Normal': parts = Math.min(2, Math.max(1, qty >= 2 ? 2 : qty)); break;
+                case 'Low': default: parts = 1; break;
+            }
+            const base = Math.floor(qty / parts);
+            const rem = qty % parts;
+            const batches = [];
+            for (let i = 0; i < parts; i++) {
+                batches.push({ qty: base + (i < rem ? 1 : 0) });
+            }
+            return batches;
+        }
+
+        function getNextShiftStart() {
+            const now = new Date();
+            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            
+            // Shift times: 06:00-14:00, 14:00-22:00
+            const morningShift = new Date(today.getTime() + (6 * 60 * 60 * 1000)); // 06:00
+            const eveningShift = new Date(today.getTime() + (14 * 60 * 60 * 1000)); // 14:00
+            const nextMorning = new Date(today.getTime() + (24 + 6) * 60 * 60 * 1000); // Next day 06:00
+            
+            if (now < morningShift) return morningShift;
+            if (now < eveningShift) return eveningShift;
+            return nextMorning;
+        }
+
+        function calculateShiftAwareSchedule(machineAvailableTime, operatorAvailableTime, setupTime, runTime, orderSettings = null) {
+            // CRITICAL FIX: Always use current time or later, but FORCE into setup window
+            let startTime = new Date(Math.max(machineAvailableTime.getTime(), operatorAvailableTime.getTime(), Date.now()));
+            
+            // LAYER 1: Setup Layer (People-Dependent) - HARD CONSTRAINT Setup Window Enforcement
+            const setupWindowStr = orderSettings ? orderSettings.setupWindow : getSetupWindow();
+            console.log('Getting setup window string:', setupWindowStr);
+            const setupWindow = parseSetupWindow(setupWindowStr);
+            
+            // FORCE SETUP INTO WINDOW - NO EXCEPTIONS
+            console.log('Original start time before enforcement:', startTime.toISOString());
+            
+            // If current time is outside setup window, FORCE to next valid window
+            const currentHour = startTime.getHours();
+            if (currentHour < setupWindow.start) {
+                // Before window - move to start of window (same day or next day)
+                startTime.setHours(setupWindow.start, 0, 0, 0);
+                console.log('Moved to window start (before):', startTime.toISOString());
+            } else if (currentHour >= setupWindow.end) {
+                // After window - move to NEXT DAY's window start
+                startTime.setDate(startTime.getDate() + 1);
+                startTime.setHours(setupWindow.start, 0, 0, 0);
+                console.log('Moved to next day window start (after):', startTime.toISOString());
+            }
+            
+            let setupStart = new Date(startTime);
+            
+            // Step 2: Validate entire setup (start + duration) fits within window
+            const validatedSetup = validateSetupWithinWindow(setupStart, setupTime, setupWindow);
+            setupStart = validatedSetup.setupStart;
+            let setupEnd = validatedSetup.setupEnd;
+            
+            // Step 3: Ensure operators are available during setup time
+            const setupShift = getSetupShift(setupStart);
+            if (!setupShift.hasOperators) {
+                // Move to next available setup window with operators
+                setupStart = getNextSetupWindow(setupStart, setupWindow);
+                // Re-validate after moving to next window
+                const revalidatedSetup = validateSetupWithinWindow(setupStart, setupTime, setupWindow);
+                setupStart = revalidatedSetup.setupStart;
+                setupEnd = revalidatedSetup.setupEnd;
+            }
+            
+            // LAYER 2: Production Layer (Machine-Dependent) - Respects Production Shifts
+            const productionShifts = getProductionShifts();
+            const runSchedule = calculateProductionWithShiftBoundaries(setupEnd, runTime, productionShifts);
+            
+            // Calculate total timing including setup + production
+            const totalElapsed = (runSchedule.runEnd.getTime() - setupStart.getTime()) / (1000 * 60);
+            const actualWork = setupTime + runTime;
+            const totalPausedTime = totalElapsed - actualWork;
+            
+            return {
+                setupStart,
+                setupEnd,
+                runStart: runSchedule.runStart,
+                runEnd: runSchedule.runEnd,
+                timingDescription: `${formatDuration(totalElapsed)} total (${totalPausedTime > 0 ? formatDuration(totalPausedTime) + ' paused, ' : ''}${formatDuration(actualWork)} work)`
+            };
+        }
+
+        function getSetupShift(time) {
+            const hour = time.getHours();
+            if (hour >= 6 && hour < 14) {
+                return { shift: 1, operators: ['A', 'B'], hasOperators: true };
+            } else if (hour >= 14 && hour < 22) {
+                return { shift: 2, operators: ['C', 'D'], hasOperators: true };
+            } else {
+                return { shift: 3, operators: [], hasOperators: false }; // Night shift - no setups
+            }
+        }
+
+        function enforceSetupWindow(time, setupWindow) {
+            const hour = time.getHours();
+            const minute = time.getMinutes();
+            
+            console.log('Enforcing Setup Window:', {
+                originalTime: time.toISOString(),
+                hour: hour,
+                minute: minute,
+                setupWindow: setupWindow
+            });
+            
+            // HARD CONSTRAINT: Setup can ONLY occur within Setup Window
+            
+            // If before setup window start, move to start of window (same day or next day)
+            if (hour < setupWindow.start) {
+                const newTime = new Date(time);
+                newTime.setHours(setupWindow.start, 0, 0, 0);
+                console.log('Moved to window start (before):', newTime.toISOString());
+                return newTime;
+            }
+            
+            // If at or after setup window end, move to NEXT DAY's window start
+            if (hour >= setupWindow.end) {
+                const nextDay = new Date(time);
+                nextDay.setDate(nextDay.getDate() + 1);
+                nextDay.setHours(setupWindow.start, 0, 0, 0);
+                console.log('Moved to next day window start (after):', nextDay.toISOString());
+                return nextDay;
+            }
+            
+            // Within window, return as-is
+            console.log('Within window, keeping time:', time.toISOString());
+            return new Date(time);
+        }
+
+        function validateSetupWithinWindow(setupStart, setupDuration, setupWindow) {
+            const setupEnd = new Date(setupStart.getTime() + setupDuration * 60000);
+            const setupEndHour = setupEnd.getHours();
+            
+            // CRITICAL: If setup would end AFTER window end time, move ENTIRE setup to next day
+            if (setupEndHour > setupWindow.end || (setupEndHour === setupWindow.end && setupEnd.getMinutes() > 0)) {
+                // Move entire setup to next day's window start
+                const nextDay = new Date(setupStart);
+                nextDay.setDate(nextDay.getDate() + 1);
+                nextDay.setHours(setupWindow.start, 0, 0, 0);
+                return {
+                    setupStart: nextDay,
+                    setupEnd: new Date(nextDay.getTime() + setupDuration * 60000)
+                };
+            }
+            
+            return {
+                setupStart: setupStart,
+                setupEnd: setupEnd
+            };
+        }
+
+        function getNextSetupWindow(currentTime, setupWindow) {
+            const nextDay = new Date(currentTime);
+            nextDay.setDate(nextDay.getDate() + 1);
+            nextDay.setHours(setupWindow.start, 0, 0, 0);
+            return nextDay;
+        }
+
+        function getProductionShifts() {
+            const productionWindow = getProductionWindow();
+            const shifts = getShifts();
+            
+            switch (productionWindow) {
+                case '24x7':
+                    return [
+                        { start: 0, end: 24 * 60, enabled: true } // 24x7 continuous
+                    ];
+                case '2-shift':
+                    return [
+                        { start: 6 * 60, end: 22 * 60, enabled: true } // 06:00-22:00
+                    ];
+                case '3-shift':
+                    return [
+                        { start: 6 * 60, end: 14 * 60, enabled: true },   // 06:00-14:00
+                        { start: 14 * 60, end: 22 * 60, enabled: true },  // 14:00-22:00
+                        { start: 22 * 60, end: 6 * 60 + 24 * 60, enabled: true } // 22:00-06:00 (next day)
+                    ];
+                default:
+                    return [
+                        { start: 0, end: 24 * 60, enabled: true }
+                    ];
+            }
+        }
+
+        function getProductionWindow() {
+            const productionSelect = document.getElementById('productionWindow');
+            return productionSelect ? productionSelect.value : '24x7';
+        }
+
+        function calculateProductionWithShiftBoundaries(runStart, runTimeMinutes, productionShifts) {
+            let currentTime = new Date(runStart);
+            let remainingTime = runTimeMinutes;
+            const segments = [];
+            let totalPausedTime = 0;
+
+            while (remainingTime > 0) {
+                const currentShift = findCurrentProductionShift(currentTime, productionShifts);
+                
+                if (!currentShift) {
+                    // No production allowed at this time, move to next shift
+                    const nextShift = findNextProductionShift(currentTime, productionShifts);
+                    const pauseTime = (nextShift.getTime() - currentTime.getTime()) / (1000 * 60);
+                    totalPausedTime += pauseTime;
+                    currentTime = nextShift;
+                    continue;
+                }
+
+                // Calculate how much time we can run in this shift
+                const shiftEndTime = getShiftEndTime(currentTime, currentShift);
+                const timeUntilShiftEnd = (shiftEndTime.getTime() - currentTime.getTime()) / (1000 * 60);
+                const timeToRun = Math.min(remainingTime, timeUntilShiftEnd);
+                
+                const segmentEnd = new Date(currentTime.getTime() + timeToRun * 60000);
+                segments.push({
+                    start: new Date(currentTime),
+                    end: segmentEnd,
+                    duration: timeToRun
+                });
+
+                remainingTime -= timeToRun;
+                currentTime = segmentEnd;
+
+                // If we need more time, move to next shift
+                if (remainingTime > 0) {
+                    const nextShift = findNextProductionShift(currentTime, productionShifts);
+                    if (nextShift.getTime() > currentTime.getTime()) {
+                        const pauseTime = (nextShift.getTime() - currentTime.getTime()) / (60 * 1000);
+                        totalPausedTime += pauseTime;
+                    }
+                    currentTime = nextShift;
+                }
+            }
+
+            const finalRunEnd = segments[segments.length - 1].end;
+            
+            return {
+                runStart,
+                runEnd: finalRunEnd,
+                segments,
+                totalPausedTime
+            };
+        }
+
+        function findCurrentProductionShift(time, productionShifts) {
+            const dayMinutes = time.getHours() * 60 + time.getMinutes();
+            
+            for (const shift of productionShifts) {
+                if (shift.enabled) {
+                    // Handle overnight shifts (e.g., 22:00-06:00)
+                    if (shift.start > shift.end) {
+                        if (dayMinutes >= shift.start || dayMinutes < shift.end) {
+                            return shift;
+                        }
+                    } else {
+                        if (dayMinutes >= shift.start && dayMinutes < shift.end) {
+                            return shift;
+                        }
+                    }
+                }
+            }
+            return null;
+        }
+
+        function findNextProductionShift(time, productionShifts) {
+            const dayMinutes = time.getHours() * 60 + time.getMinutes();
+            let nextShiftStart = null;
+            let nextDay = false;
+
+            // Find the next enabled shift
+            for (const shift of productionShifts) {
+                if (shift.enabled) {
+                    if (shift.start > dayMinutes) {
+                        if (!nextShiftStart || shift.start < nextShiftStart) {
+                            nextShiftStart = shift.start;
+                        }
+                    }
+                }
+            }
+
+            // If no shift found today, get first shift of next day
+            if (!nextShiftStart) {
+                for (const shift of productionShifts) {
+                    if (shift.enabled) {
+                        if (!nextShiftStart || shift.start < nextShiftStart) {
+                            nextShiftStart = shift.start;
+                            nextDay = true;
+                        }
+                    }
+                }
+            }
+
+            const nextTime = new Date(time);
+            if (nextDay) {
+                nextTime.setDate(nextTime.getDate() + 1);
+            }
+            nextTime.setHours(Math.floor(nextShiftStart / 60), nextShiftStart % 60, 0, 0);
+            return nextTime;
+        }
+
+        function getShiftEndTime(time, shift) {
+            const endTime = new Date(time);
+            
+            // Handle overnight shifts
+            if (shift.start > shift.end) {
+                if (time.getHours() * 60 + time.getMinutes() >= shift.start) {
+                    // We're in the first part of overnight shift, end is next day
+                    endTime.setDate(endTime.getDate() + 1);
+                }
+            }
+            
+            endTime.setHours(Math.floor(shift.end / 60), shift.end % 60, 0, 0);
+            return endTime;
+        }
+
+        function getCurrentProductionShift(time, productionWindow) {
+            const hour = time.getHours();
+            
+            switch (productionWindow) {
+                case '24x7':
+                    return { isProductionAllowed: true, minutesUntilEnd: 24 * 60 }; // Always allowed
+                    
+                case '2-shift':
+                    if (hour >= 6 && hour < 22) {
+                        const minutesUntilEnd = (22 - hour) * 60 - time.getMinutes();
+                        return { isProductionAllowed: true, minutesUntilEnd };
+                    }
+                    return { isProductionAllowed: false, minutesUntilEnd: 0 };
+                    
+                case '3-shift':
+                    // 3 shifts with boundaries: 06:00-14:00, 14:00-22:00, 22:00-06:00
+                    let shiftEnd;
+                    if (hour >= 6 && hour < 14) {
+                        shiftEnd = 14;
+                    } else if (hour >= 14 && hour < 22) {
+                        shiftEnd = 22;
+                    } else {
+                        shiftEnd = hour < 6 ? 6 : 6 + 24; // Next day 06:00
+                    }
+                    const minutesUntilEnd = (shiftEnd - hour) * 60 - time.getMinutes();
+                    return { isProductionAllowed: true, minutesUntilEnd };
+                    
+                default:
+                    return { isProductionAllowed: true, minutesUntilEnd: 24 * 60 };
+            }
+        }
+
+        function getNextProductionWindow(currentTime, productionWindow) {
+            const hour = currentTime.getHours();
+            const nextWindow = new Date(currentTime);
+            
+            switch (productionWindow) {
+                case '24x7':
+                    return currentTime; // Always available
+                    
+                case '2-shift':
+                    if (hour >= 22 || hour < 6) {
+                        // Move to next day 06:00
+                        nextWindow.setDate(nextWindow.getDate() + (hour >= 22 ? 1 : 0));
+                        nextWindow.setHours(6, 0, 0, 0);
+                    }
+                    return nextWindow;
+                    
+                case '3-shift':
+                    // Move to next shift boundary
+                    if (hour >= 6 && hour < 14) {
+                        nextWindow.setHours(14, 0, 0, 0);
+                    } else if (hour >= 14 && hour < 22) {
+                        nextWindow.setHours(22, 0, 0, 0);
+                    } else {
+                        nextWindow.setDate(nextWindow.getDate() + 1);
+                        nextWindow.setHours(6, 0, 0, 0);
+                    }
+                    return nextWindow;
+                    
+                default:
+                    return currentTime;
+            }
+        }
+
+        function alignToSetupWindow(time, setupWindow) {
+            const hour = time.getHours();
+            const date = new Date(time.getFullYear(), time.getMonth(), time.getDate());
+            
+            if (hour < setupWindow.start) {
+                // Before window, move to start
+                return new Date(date.getTime() + (setupWindow.start * 60 * 60 * 1000));
+            } else if (hour >= setupWindow.end) {
+                // After window, move to next day start
+                return new Date(date.getTime() + (24 + setupWindow.start) * 60 * 60 * 1000);
+            }
+            return time; // Within window
+        }
+
+        function scheduleSetupWithinWindow(startTime, durationMinutes, setupWindow) {
+            let currentTime = new Date(startTime);
+            let remainingTime = durationMinutes;
+            let totalPausedTime = 0;
+            const actualStart = new Date(currentTime);
+            
+            while (remainingTime > 0) {
+                const hour = currentTime.getHours();
+                
+                // Check if we're within setup window
+                if (hour < setupWindow.start || hour >= setupWindow.end) {
+                    // Outside window, move to next window start
+                    const date = new Date(currentTime.getFullYear(), currentTime.getMonth(), currentTime.getDate());
+                    let nextWindowStart;
+                    
+                    if (hour < setupWindow.start) {
+                        nextWindowStart = new Date(date.getTime() + (setupWindow.start * 60 * 60 * 1000));
+                    } else {
+                        nextWindowStart = new Date(date.getTime() + (24 + setupWindow.start) * 60 * 60 * 1000);
+                    }
+                    
+                    const pauseTime = (nextWindowStart.getTime() - currentTime.getTime()) / (60 * 1000);
+                    totalPausedTime += pauseTime;
+                    currentTime = nextWindowStart;
+                    continue;
+                }
+                
+                // Calculate time available in current window
+                const windowEndTime = new Date(currentTime.getFullYear(), currentTime.getMonth(), currentTime.getDate(), setupWindow.end);
+                const availableInWindow = Math.max(0, (windowEndTime.getTime() - currentTime.getTime()) / (60 * 1000));
+                
+                if (availableInWindow >= remainingTime) {
+                    // Can complete setup in current window
+                    currentTime = new Date(currentTime.getTime() + (remainingTime * 60 * 1000));
+                    remainingTime = 0;
+                } else {
+                    // Need to continue in next window
+                    remainingTime -= availableInWindow;
+                    currentTime = windowEndTime;
+                }
+            }
+            
+            return {
+                start: actualStart,
+                end: currentTime,
+                pausedTime: totalPausedTime
+            };
+        }
+
+        function scheduleRunContinuous(startTime, durationMinutes) {
+            // Run phase can continue 24/7, only paused by breakdowns/holidays
+            const endTime = new Date(startTime.getTime() + (durationMinutes * 60 * 1000));
+            
+            // Check for breakdown machines and holidays from advanced settings
+            let pausedTime = 0;
+            
+            // Add breakdown time if applicable
+            if (advancedSettings.breakdownDateTime) {
+                // Parse breakdown time and add to paused time
+                // This is a simplified implementation
+                pausedTime += 60; // Assume 1 hour breakdown
+            }
+            
+            return {
+                start: startTime,
+                end: new Date(endTime.getTime() + (pausedTime * 60 * 1000)),
+                pausedTime: pausedTime
+            };
+        }
+
+        function scheduleWithinShifts(startTime, durationMinutes) {
+            let currentTime = new Date(startTime);
+            let remainingTime = durationMinutes;
+            let totalPausedTime = 0;
+            const actualStart = new Date(currentTime);
+            
+            while (remainingTime > 0) {
+                const shiftEnd = getShiftEnd(currentTime);
+                const availableInShift = Math.max(0, (shiftEnd.getTime() - currentTime.getTime()) / (60 * 1000));
+                
+                if (availableInShift >= remainingTime) {
+                    // Can complete in current shift
+                    currentTime = new Date(currentTime.getTime() + (remainingTime * 60 * 1000));
+                    remainingTime = 0;
+                } else {
+                    // Need to continue in next shift
+                    remainingTime -= availableInShift;
+                    const nextShiftStart = getNextShiftAfter(shiftEnd);
+                    const pauseTime = (nextShiftStart.getTime() - shiftEnd.getTime()) / (60 * 1000);
+                    totalPausedTime += pauseTime;
+                    currentTime = nextShiftStart;
+                }
+            }
+            
+            return {
+                start: actualStart,
+                end: currentTime,
+                pausedTime: totalPausedTime
+            };
+        }
+
+        function getShiftEnd(time) {
+            const date = new Date(time.getFullYear(), time.getMonth(), time.getDate());
+            const hour = time.getHours();
+            
+            if (hour < 14) {
+                // Morning shift ends at 14:00
+                return new Date(date.getTime() + (14 * 60 * 60 * 1000));
+            } else {
+                // Evening shift ends at 22:00
+                return new Date(date.getTime() + (22 * 60 * 60 * 1000));
+            }
+        }
+
+        function getNextShiftAfter(time) {
+            const date = new Date(time.getFullYear(), time.getMonth(), time.getDate());
+            const hour = time.getHours();
+            
+            if (hour < 6) {
+                // Next shift is morning at 06:00
+                return new Date(date.getTime() + (6 * 60 * 60 * 1000));
+            } else if (hour < 14) {
+                // Next shift is evening at 14:00
+                return new Date(date.getTime() + (14 * 60 * 60 * 1000));
+            } else {
+                // Next shift is tomorrow morning at 06:00
+                return new Date(date.getTime() + (24 + 6) * 60 * 60 * 1000);
+            }
+        }
+
+        function alignToShiftStart(time) {
+            const hour = time.getHours();
+            const date = new Date(time.getFullYear(), time.getMonth(), time.getDate());
+            
+            if (hour < 6) {
+                return new Date(date.getTime() + (6 * 60 * 60 * 1000)); // 06:00
+            } else if (hour < 14) {
+                return time; // Already in morning shift
+            } else if (hour < 22) {
+                return time; // Already in evening shift
+            } else {
+                return new Date(date.getTime() + (24 + 6) * 60 * 60 * 1000); // Next day 06:00
+            }
+        }
+
+        function formatTiming(totalElapsedMs, pausedTimeMinutes) {
+            const totalMinutes = Math.floor(totalElapsedMs / (60 * 1000));
+            const days = Math.floor(totalMinutes / (24 * 60));
+            const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
+            const minutes = totalMinutes % 60;
+            
+            let result = "";
+            if (days > 0) result += `${days}d `;
+            if (hours > 0) result += `${hours}h `;
+            if (minutes > 0) result += `${minutes}m`;
+            
+            if (pausedTimeMinutes > 0) {
+                const pausedHours = Math.floor(pausedTimeMinutes / 60);
+                result += ` (paused ${pausedHours}h due to shift gaps)`;
+            }
+            
+            return result.trim();
+        }
+
+        function formatDateTime(date) {
+            if (!date || !(date instanceof Date)) {
+                console.error('Invalid date passed to formatDateTime:', date);
+                return 'Invalid Date';
+            }
+            
+            // Force local timezone display instead of UTC
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            const hours = String(date.getHours()).padStart(2, '0');
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+            
+            const formatted = `${year}-${month}-${day} ${hours}:${minutes}`;
+            console.log('Formatting date:', date.toISOString(), '→', formatted);
+            return formatted;
+        }
+
+        function formatDate(dateString) {
+            return new Date(dateString).toISOString().slice(0, 10);
+        }
+
+        function formatDuration(minutes) {
+            if (minutes < 60) {
+                return `${Math.round(minutes)}M`;
+            }
+            
+            const totalMinutes = Math.round(minutes);
+            const days = Math.floor(totalMinutes / (24 * 60));
+            const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
+            const mins = totalMinutes % 60;
+            
+            let result = '';
+            if (days > 0) result += `${days}D `;
+            if (hours > 0) result += `${hours}H `;
+            if (mins > 0) result += `${mins}M`;
+            
+            return result.trim() || '0M';
+        }
+
+        function getBreakdownMachines() {
+            const select = document.getElementById('breakdownMachines');
+            if (!select) return [];
+            return Array.from(select.selectedOptions).map(option => option.value);
+        }
+
+        function getBreakdownDateTime() {
+            const input = document.getElementById('breakdownDateTime');
+            return input ? input.value : '';
+        }
+
+        function getStartDateTime() {
+            const input = document.getElementById('startDateTime');
+            return input ? new Date(input.value) : new Date();
+        }
+
+        function getHolidays() {
+            const input = document.getElementById('holidays');
+            if (!input || !input.value) return [];
+            return input.value.split(',').map(date => date.trim());
+        }
+
+        function getSetupWindow() {
+            const input = document.getElementById('setupAvailabilityWindow');
+            return input ? input.value : '06:00-22:00';
+        }
+
+        function getShifts() {
+            return {
+                shift1: document.getElementById('shift1')?.value || '06:00-14:00',
+                shift2: document.getElementById('shift2')?.value || '14:00-22:00',
+                shift3: document.getElementById('shift3')?.value || '22:00-06:00'
+            };
+        }
+
+        function calculatePieceLevelScheduling(operations, order, machineSchedule, operatorSchedule) {
+            const results = [];
+            const batchQty = order.quantity;
+            let previousOpPieceCompletionTimes = []; // Track when each piece completes from previous operation
+            
+            // Get order-specific settings
+            const orderSettings = getOrderSettings(order);
+            
+            operations.forEach((operation, opIndex) => {
+                // Select machine and operator for this operation
+                const selectedMachine = selectOptimalMachine(operation, machineSchedule, orderSettings);
+                const selectedOperator = selectOptimalOperator(operatorSchedule, machineSchedule[selectedMachine], orderSettings);
+                
+                // Setup Rule: Setup starts when first piece from previous operation is completed
+                let setupStartTime;
+                if (opIndex === 0) {
+                    // First operation - setup starts based on machine/operator availability
+                    setupStartTime = new Date(Math.max(
+                        machineSchedule[selectedMachine]?.getTime() || 0,
+                        operatorSchedule[selectedOperator]?.getTime() || 0,
+                        Date.now()
+                    ));
+                } else {
+                    // Subsequent operations - setup starts when first piece from previous op is done
+                    setupStartTime = new Date(Math.max(
+                        previousOpPieceCompletionTimes[0]?.getTime() || 0,
+                        machineSchedule[selectedMachine]?.getTime() || 0,
+                        operatorSchedule[selectedOperator]?.getTime() || 0
+                    ));
+                }
+                
+                // Apply setup window constraints - FIXED: Handle undefined setupWindow
+                let setupStart, setupEnd;
+                try {
+                    const setupSchedule = calculateShiftAwareSchedule(
+                        setupStartTime,
+                        setupStartTime,
+                        operation.SetupTime_Min,
+                        0, // No run time for setup phase
+                        orderSettings
+                    );
+                    setupStart = setupSchedule.setupStart;
+                    setupEnd = setupSchedule.setupEnd;
+                } catch (error) {
+                    console.error('Error in setup scheduling:', error);
+                    // Fallback: simple setup calculation without shift constraints
+                    setupStart = new Date(setupStartTime);
+                    setupEnd = new Date(setupStart.getTime() + operation.SetupTime_Min * 60000);
+                }
+                
+                // Machine becomes available after setup
+                let machineAvailableTime = new Date(setupEnd);
+                
+                // Piece Flow Rule: Process each piece individually
+                const pieceRunTimes = [];
+                const pieceCompletionTimes = [];
+                
+                for (let pieceIndex = 0; pieceIndex < batchQty; pieceIndex++) {
+                    // When is this piece ready from previous operation?
+                    let pieceReadyTime;
+                    if (opIndex === 0) {
+                        // First operation - all pieces ready at setup end
+                        pieceReadyTime = new Date(setupEnd);
+                    } else {
+                        // Piece ready when it completed previous operation
+                        pieceReadyTime = previousOpPieceCompletionTimes[pieceIndex] || new Date(setupEnd);
+                    }
+                    
+                    // RunStartTime = max(PieceReadyTime, MachineAvailableTime)
+                    const runStartTime = new Date(Math.max(
+                        pieceReadyTime.getTime(),
+                        machineAvailableTime.getTime()
+                    ));
+                    
+                    // RunEndTime = RunStartTime + CycleTime
+                    const runEndTime = new Date(runStartTime.getTime() + operation.CycleTime_Min * 60000);
+                    
+                    pieceRunTimes.push({
+                        piece: pieceIndex + 1,
+                        runStart: runStartTime,
+                        runEnd: runEndTime
+                    });
+                    
+                    pieceCompletionTimes.push(runEndTime);
+                    
+                    // Update machine availability for next piece
+                    machineAvailableTime = new Date(runEndTime);
+                }
+                
+                // Operation completion times
+                const firstPieceDone = pieceCompletionTimes[0];
+                const lastPieceDone = pieceCompletionTimes[batchQty - 1];
+                const operationRunStart = pieceRunTimes[0].runStart;
+                const operationRunEnd = lastPieceDone;
+                
+                // Calculate timing description
+                const totalElapsed = (operationRunEnd.getTime() - setupStart.getTime()) / (1000 * 60);
+                const actualWork = operation.SetupTime_Min + (operation.CycleTime_Min * batchQty);
+                const pausedTime = totalElapsed - actualWork;
+                
+                results.push({
+                    OperationSeq: operation.OperationSeq,
+                    OperationName: operation.OperationName,
+                    Machine: selectedMachine,
+                    Person: selectedOperator,
+                    SetupStart: setupStart,
+                    SetupEnd: setupEnd,
+                    RunStart: operationRunStart,
+                    RunEnd: operationRunEnd,
+                    actualRunEnd: operationRunEnd, // For updating schedules
+                    FirstPieceDone: firstPieceDone,
+                    LastPieceDone: lastPieceDone,
+                    PieceDetails: pieceRunTimes,
+                    Timing: `${formatDuration(totalElapsed)} total (${pausedTime > 0 ? formatDuration(pausedTime) + ' paused, ' : ''}${formatDuration(actualWork)} work)`
+                });
+                
+                // Update previous operation piece completion times for next iteration
+                previousOpPieceCompletionTimes = pieceCompletionTimes;
+            });
+            
+            return results;
+        }
+
+        function getOrderSettings(order) {
+            // Get global settings
+            const globalSettings = {
+                breakdownMachines: getBreakdownMachines(),
+                breakdownDateTime: getBreakdownDateTime(),
+                startDateTime: getStartDateTime(),
+                holidays: getHolidays(),
+                setupWindow: getSetupWindow(),
+                shifts: getShifts()
+            };
+
+            // Override with order-specific settings if provided
+            const orderSettings = { ...globalSettings };
+
+            if (order.breakdownMachine) {
+                orderSettings.breakdownMachines = [order.breakdownMachine];
+            }
+            if (order.breakdownDateTime) {
+                orderSettings.breakdownDateTime = order.breakdownDateTime;
+            }
+            if (order.startDateTime) {
+                orderSettings.startDateTime = new Date(order.startDateTime);
+            }
+            if (order.holidayRange) {
+                orderSettings.holidays = [order.holidayRange];
+            }
+            if (order.setupWindow) {
+                orderSettings.setupWindow = order.setupWindow;
+            }
+
+            return orderSettings;
+        }
+
+        function selectOptimalMachine(operation, machineSchedule, orderSettings = null) {
+            const eligibleMachines = operation.EligibleMachines;
+            
+            // Filter out breakdown machines (use order-specific or global)
+            const breakdownMachines = orderSettings ? orderSettings.breakdownMachines : getBreakdownMachines();
+            const availableMachines = eligibleMachines.filter(machine => 
+                !breakdownMachines.includes(machine)
+            );
+            
+            if (availableMachines.length === 0) {
+                return eligibleMachines[0]; // Fallback to first eligible if all are broken
+            }
+            
+            // Select machine with earliest availability
+            return availableMachines.reduce((best, current) => {
+                const bestTime = machineSchedule[best] || new Date();
+                const currentTime = machineSchedule[current] || new Date();
+                return currentTime < bestTime ? current : best;
+            });
+        }
+
+        function selectOptimalOperator(operatorSchedule, machineStartTime, orderSettings = null) {
+            // Use order-specific shifts or fall back to global
+            const shifts = orderSettings ? orderSettings.shifts : getShifts();
+            
+            // Parse shift times from settings
+            const shift1 = parseShiftTime(shifts.shift1); // 06:00-14:00 -> A, B
+            const shift2 = parseShiftTime(shifts.shift2); // 14:00-22:00 -> C, D
+            const shift3 = parseShiftTime(shifts.shift3); // 22:00-06:00 -> Optional
+            
+            const startTime = new Date(Math.max(machineStartTime.getTime(), Date.now()));
+            
+            // Determine which shift the setup will occur in
+            const hour = startTime.getHours();
+            const minute = startTime.getMinutes();
+            const timeInMinutes = hour * 60 + minute;
+            
+            let availableOperators = [];
+            
+            // Check which shift we're in
+            if (timeInMinutes >= shift1.start && timeInMinutes < shift1.end) {
+                availableOperators = ['A', 'B'];
+            } else if (timeInMinutes >= shift2.start && timeInMinutes < shift2.end) {
+                availableOperators = ['C', 'D'];
+            } else if (shift3.enabled && (timeInMinutes >= shift3.start || timeInMinutes < shift3.end)) {
+                availableOperators = ['A', 'B']; // Fallback to A, B for night shift
+            } else {
+                availableOperators = ['A', 'B']; // Default fallback
+            }
+            
+            // Select operator with earliest availability
+            return availableOperators.reduce((best, current) => {
+                const bestTime = operatorSchedule[best] || new Date();
+                const currentTime = operatorSchedule[current] || new Date();
+                return currentTime < bestTime ? current : best;
+            });
+        }
+
+        function parseShiftTime(shiftString) {
+            const [start, end] = shiftString.split('-');
+            return {
+                start: parseInt(start.split(':')[0]) * 60 + parseInt(start.split(':')[1]),
+                end: parseInt(end.split(':')[0]) * 60 + parseInt(end.split(':')[1])
+            };
+        }
+
+        function parseSetupWindow(windowString) {
+            if (!windowString || typeof windowString !== 'string') {
+                console.error('Invalid setup window string:', windowString);
+                return { start: 6, end: 22 }; // Default fallback
+            }
+            
+            const [start, end] = windowString.split('-');
+            if (!start || !end) {
+                console.error('Invalid setup window format:', windowString);
+                return { start: 6, end: 22 }; // Default fallback
+            }
+            
+            const startParts = start.split(':');
+            const endParts = end.split(':');
+            
+            if (!startParts[0] || !endParts[0]) {
+                console.error('Invalid time format in setup window:', windowString);
+                return { start: 6, end: 22 }; // Default fallback
+            }
+            
+            const startHour = parseInt(startParts[0]);
+            const endHour = parseInt(endParts[0]);
+            
+            if (isNaN(startHour) || isNaN(endHour)) {
+                console.error('Invalid hour values in setup window:', windowString);
+                return { start: 6, end: 22 }; // Default fallback
+            }
+            
+            console.log('Parsed Setup Window:', { start: startHour, end: endHour, original: windowString });
+            
+            return {
+                start: startHour,
+                end: endHour
+            };
+        }
+
+        function displayResults() {
+            const resultsCard = document.getElementById('resultsCard');
+            const alertsContainer = document.getElementById('scheduleAlerts');
+            const tbody = document.getElementById('resultsTableBody');
+
+            // Display alerts if any
+            if (scheduleResults.alerts && scheduleResults.alerts.length > 0) {
+                alertsContainer.innerHTML = scheduleResults.alerts.map(alert => 
+                    `<div class="alert alert-error">${alert}</div>`
+                ).join('');
+            } else {
+                alertsContainer.innerHTML = '';
+            }
+
+            // Display results table
+            if (scheduleResults.rows && scheduleResults.rows.length > 0) {
+                tbody.innerHTML = scheduleResults.rows.map(row => `
+                    <tr>
+                        <td>${row.PartNumber}</td>
+                        <td>${row.Order_Quantity}</td>
+                        <td>${row.Priority}</td>
+                        <td>${row.Batch_ID}</td>
+                        <td>${row.Batch_Qty}</td>
+                        <td>${row.OperationSeq}</td>
+                        <td>${row.OperationName}</td>
+                        <td>${row.Machine}</td>
+                        <td>${row.Person}</td>
+                        <td class="nowrap">${row.SetupStart}</td>
+                        <td class="nowrap">${row.SetupEnd}</td>
+                        <td class="nowrap">${row.RunStart}</td>
+                        <td class="nowrap">${row.RunEnd}</td>
+                        <td class="nowrap">${row.Timing}</td>
+                        <td class="nowrap">${row.DueDate}</td>
+                    </tr>
+                `).join('');
+            } else {
+                tbody.innerHTML = '<tr><td colspan="15" style="text-align: center; color: #888;">No results to display</td></tr>';
+            }
+
+            resultsCard.style.display = 'block';
+            resultsCard.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function exportToExcel() {
+            if (!scheduleResults.rows || scheduleResults.rows.length === 0) {
+                alert('No data to export');
+                return;
+            }
+
+            try {
+                const ws = XLSX.utils.json_to_sheet(scheduleResults.rows);
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, "Schedule Results");
+
+                // Generate filename with timestamp
+                const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+                const filename = `production_schedule_${timestamp}.xlsx`;
+
+                XLSX.writeFile(wb, filename);
+                showAlert('Excel file exported successfully!', 'success');
+            } catch (error) {
+                console.error('Export error:', error);
+                showAlert('Error exporting to Excel: ' + error.message, 'error');
+            }
+        }
+
+        function showAlert(message, type) {
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type}`;
+            alertDiv.textContent = message;
+            
+            document.querySelector('.container').insertBefore(alertDiv, document.querySelector('.card'));
+            
+            setTimeout(() => {
+                alertDiv.remove();
+            }, 5000);
+        }
+
+        // Google Sheets Integration
+        const GOOGLE_SHEETS_API_URL = 'https://script.google.com/macros/s/AKfycbwm_sPgJPGB7MViA1jow68rb-pAZGJKqskXIQdFBnDY_0QfpI9ObiUCI8fFZmrM-qbPGQ/exec';
+        let lastSyncTimestamp = null;
+        let isRefreshing = false;
+
+        // Auto-sync interval (optional - set to 0 to disable)
+        const AUTO_SYNC_INTERVAL_MINUTES = 5; // Set to 0 to disable auto-sync
+
+        // Shared success handler
+        function applyRoutingData(data) {
+            if (!(data && data.meta && data.items)) {
+                throw new Error('Invalid response format from Google Sheets API');
+            }
+            updateLocalRoutingData(data.items);
+            persistRoutingData();
+            // Also push to local writer service to update data.js on disk
+            pushToLocalWriter(data.items);
+            const syncStatus = document.getElementById('syncStatus');
+            const lastSyncEl = document.getElementById('lastSync');
+            lastSyncTimestamp = new Date();
+            persistLastSync(lastSyncTimestamp);
+            syncStatus.textContent = '✅ Google Sheets (saved)';
+            lastSyncEl.textContent = `Last sync: ${lastSyncTimestamp.toLocaleString()}`;
+            document.getElementById('partNumber').value = '';
+            document.getElementById('operationSeqDisplay').value = '';
+            document.getElementById('operationSeqDisplay').placeholder = 'Select a part number first';
+            document.getElementById('operationSeqBtn').disabled = true;
+            showAlert(`Successfully synced ${data.meta.rowCount} routing records from Google Sheets`, 'success');
+            console.log('Routing data synced:', {
+                totalRows: data.meta.rowCount,
+                lastSync: data.meta.lastSync,
+                sheetName: data.meta.sheetName
+            });
+        }
+
+        // Send updated dataset to local writer (Node/Express) to overwrite data.js on disk
+        function pushToLocalWriter(items) {
+            const url = 'http://localhost:3000/update-data';
+            fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ items }),
+                mode: 'cors'
+            })
+            .then(async (res) => {
+                if (!res.ok) throw new Error(await res.text());
+                return res.json();
+            })
+            .then((resp) => {
+                console.log('Local writer response:', resp);
+                showAlert(`Local database updated (data.js) with ${items.length} rows.`, 'success');
+            })
+            .catch((err) => {
+                console.warn('Local writer not available or failed:', err);
+                // Non-blocking: continue without failing UI
+                showAlert('Could not update local data.js automatically. Start the local writer or use Download data.js.', 'warning');
+            });
+        }
+
+        // JSONP helper to bypass CORS when allowed by server
+        function jsonpRequest(url, timeoutMs = 30000) {
+            return new Promise((resolve, reject) => {
+                const cbName = `__jsonp_cb_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+                const sep = url.includes('?') ? '&' : '?';
+                const src = `${url}${sep}callback=${cbName}`;
+                const script = document.createElement('script');
+                let settled = false;
+
+                const cleanup = () => {
+                    if (script.parentNode) script.parentNode.removeChild(script);
+                    try { delete window[cbName]; } catch (_) { window[cbName] = undefined; }
+                };
+
+                const timer = setTimeout(() => {
+                    if (settled) return;
+                    settled = true;
+                    cleanup();
+                    reject(new Error('JSONP timeout'));
+                }, timeoutMs);
+
+                window[cbName] = (data) => {
+                    if (settled) return;
+                    settled = true;
+                    clearTimeout(timer);
+                    cleanup();
+                    resolve(data);
+                };
+
+                script.onerror = () => {
+                    if (settled) return;
+                    settled = true;
+                    clearTimeout(timer);
+                    cleanup();
+                    reject(new Error('JSONP network error'));
+                };
+
+                script.src = src;
+                document.head.appendChild(script);
+            });
+        }
+
+        function refreshRoutingData() {
+            if (isRefreshing) return;
+            
+            isRefreshing = true;
+            const refreshBtn = document.getElementById('refreshDataBtn');
+            const refreshIcon = document.getElementById('refreshIcon');
+            const syncStatus = document.getElementById('syncStatus');
+            const lastSyncEl = document.getElementById('lastSync');
+            
+            // Update UI to show loading state
+            refreshBtn.disabled = true;
+            refreshIcon.classList.add('spinning');
+            syncStatus.textContent = '🔄 Syncing...';
+            
+            // Enhanced fetch with better error handling and timeout
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+            
+            fetch(GOOGLE_SHEETS_API_URL, {
+                method: 'GET',
+                cache: 'no-cache',
+                signal: controller.signal
+            })
+                .then(response => {
+                    clearTimeout(timeoutId);
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.error) {
+                        throw new Error(data.error + (data.details ? ': ' + data.details : ''));
+                    }
+                    applyRoutingData(data);
+                })
+                .catch(error => {
+                    clearTimeout(timeoutId);
+                    console.error('Sync failed:', error);
+                    
+                    let errorMessage = 'Unknown error';
+                    if (error.name === 'AbortError') {
+                        errorMessage = 'Request timeout - check your internet connection';
+                    } else if (error.message.includes('Failed to fetch')) {
+                        errorMessage = 'Network error - verify Google Apps Script URL and deployment settings';
+                    } else if (error.message.includes('CORS')) {
+                        errorMessage = 'CORS error - redeploy Google Apps Script with proper permissions';
+                    } else {
+                        errorMessage = error.message;
+                    }
+                    // Try JSONP fallback on CORS or generic fetch failure
+                    if (errorMessage.includes('CORS') || errorMessage.includes('Network error')) {
+                        return jsonpRequest(GOOGLE_SHEETS_API_URL)
+                            .then(data => {
+                                if (data && data.error) throw new Error(data.error);
+                                applyRoutingData(data);
+                            })
+                            .catch(innerErr => {
+                                syncStatus.textContent = '❌ Sync Failed';
+                                showAlert(`Sync failed: ${errorMessage}`, 'error');
+                                console.log('Troubleshooting tips:', {
+                                    'Check URL': GOOGLE_SHEETS_API_URL,
+                                    'Verify deployment': 'Ensure Google Apps Script is deployed as Web App',
+                                    'Check permissions': 'Web App should have "Anyone with the link" access',
+                                    'Test directly': 'Try opening the API URL in a browser tab'
+                                });
+                            });
+                    } else {
+                        syncStatus.textContent = '❌ Sync Failed';
+                        showAlert(`Sync failed: ${errorMessage}`, 'error');
+                        console.log('Troubleshooting tips:', {
+                            'Check URL': GOOGLE_SHEETS_API_URL,
+                            'Verify deployment': 'Ensure Google Apps Script is deployed as Web App',
+                            'Check permissions': 'Web App should have "Anyone with the link" access',
+                            'Test directly': 'Try opening the API URL in a browser tab'
+                        });
+                    }
+                })
+                .finally(() => {
+                    // Reset UI state
+                    isRefreshing = false;
+                    refreshBtn.disabled = false;
+                    refreshIcon.classList.remove('spinning');
+                });
+        }
+
+        function updateLocalRoutingData(newItems) {
+            // Clear existing data
+            window.OP_MASTER = [];
+            
+            // Convert Google Sheets data to local format
+            newItems.forEach(item => {
+                window.OP_MASTER.push({
+                    PartNumber: String(item.PartNumber).trim(),
+                    OperationSeq: parseInt(item.OperationSeq) || 0,
+                    OperationName: item.OperationName || '',
+                    SetupTime_Min: parseFloat(item.SetupTime_Min) || 0,
+                    Operator: item.Operator || '',
+                    CycleTime_Min: parseFloat(item.CycleTime_Min) || 0,
+                    Minimum_BatchSize: parseInt(item.Minimum_BatchSize) || 1,
+                    EligibleMachines: Array.isArray(item.EligibleMachines) ? item.EligibleMachines : 
+                        (typeof item.EligibleMachines === 'string' ? 
+                            item.EligibleMachines.split(',').map(m => m.trim()).filter(m => m) : 
+                            ['VMC 1'])
+                });
+            });
+            
+            console.log(`Updated local routing data with ${window.OP_MASTER.length} records`);
+        }
+
+        // Persist to localStorage so data survives page reloads
+        function persistRoutingData() {
+            try {
+                localStorage.setItem('op_master', JSON.stringify(window.OP_MASTER));
+                console.log('Persisted OP_MASTER to localStorage');
+            } catch (e) {
+                console.warn('Failed to persist OP_MASTER:', e);
+            }
+        }
+
+        // Load from localStorage if present
+        function loadPersistedRoutingData() {
+            try {
+                const raw = localStorage.getItem('op_master');
+                if (raw) {
+                    const items = JSON.parse(raw);
+                    updateLocalRoutingData(items);
+                    const syncStatus = document.getElementById('syncStatus');
+                    syncStatus.textContent = '📦 Local Cache';
+                    console.log('Loaded OP_MASTER from localStorage');
+                }
+            } catch (e) {
+                console.warn('Failed to load persisted OP_MASTER:', e);
+            }
+        }
+
+        // Persist and restore last sync timestamp
+        function persistLastSync(date) {
+            try {
+                localStorage.setItem('op_master_last_sync', date.toISOString());
+            } catch (e) {
+                console.warn('Failed to persist last sync time:', e);
+            }
+        }
+
+        function loadPersistedLastSync() {
+            try {
+                const raw = localStorage.getItem('op_master_last_sync');
+                if (raw) {
+                    const dt = new Date(raw);
+                    if (!isNaN(dt.getTime())) {
+                        lastSyncTimestamp = dt;
+                        const lastSyncEl = document.getElementById('lastSync');
+                        lastSyncEl.textContent = `Last sync: ${dt.toLocaleString()}`;
+                    }
+                }
+            } catch (e) {
+                console.warn('Failed to load last sync time:', e);
+            }
+        }
+
+        // Download a fresh data.js file for the repo
+        function downloadDataJs() {
+            try {
+                const content = 'window.OP_MASTER = ' + JSON.stringify(window.OP_MASTER, null, 2) + ';\n';
+                const blob = new Blob([content], { type: 'application/javascript' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'data.js';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                showAlert('Downloaded updated data.js. Replace the file in your project to make it permanent.', 'success');
+            } catch (e) {
+                showAlert('Failed to build data.js: ' + e.message, 'error');
+            }
+        }
+
+        // Initialize auto-sync if enabled
+        function initializeAutoSync() {
+            if (AUTO_SYNC_INTERVAL_MINUTES > 0) {
+                setInterval(() => {
+                    if (!isRefreshing) {
+                        console.log('Auto-syncing routing data...');
+                        refreshRoutingData();
+                    }
+                }, AUTO_SYNC_INTERVAL_MINUTES * 60 * 1000);
+                
+                console.log(`Auto-sync enabled: every ${AUTO_SYNC_INTERVAL_MINUTES} minutes`);
+            }
+        }
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            loadPersistedRoutingData();
+            loadPersistedLastSync();
+            initializeAutoSync();
+            
+            // Show initial sync status
+            const syncStatus = document.getElementById('syncStatus');
+            if (window.OP_MASTER && window.OP_MASTER.length > 0) {
+                syncStatus.textContent = '📊 Local Data';
+            } else {
+                syncStatus.textContent = '⚠️ No Data';
+            }
+        });
+    </script>
+</body>
+</html>

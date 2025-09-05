@@ -1,0 +1,445 @@
+---
+alwaysApply: true
+---
+
+Detailed Setup Rules — complete spec
+
+Below are explicit, unambiguous setup rules you can drop into your scheduler spec, UI, or hand to devs/operators. They cover every practical case (shift mapping, operator capacity, cross-shift behavior, holidays/breakdowns, reuse, validation, tie-breakers and examples). Timezone assumed: Asia/Kolkata (IST). Date/time format recommended: YYYY-MM-DD HH:mm (or a single canonical format for your system).
+
+1. Definitions & assumptions
+
+Setup = one-time preparation activity for a machine before pieces start processing for an operation on a batch.
+
+SetupStart → SetupEnd = exact interval reserved for the setup person and machine.
+
+Setup Window = allowed hours for setups (06:00–22:00 local). No setups outside this window unless explicit overtime/override.
+
+Operator = person who performs setup (A, B, C, D). Each operator has a shift.
+
+Operator Calendar (operatorCal[op]) = list of assigned setup intervals for that operator.
+
+Machine Calendar (machineCal[machine]) = list of booked intervals for the machine (includes the whole SetupStart → RunEnd interval for exclusivity).
+
+Piece-level trigger = first-piece-ready time from previous operation; setup for next operation can start no earlier than that (see piece-level rules).
+
+Concurrent setups allowed = at most #operators_in_shift (here 2) within the same shift window.
+
+2. Shift & operator mapping (immutable)
+
+Shift 1 (Morning): 06:00–14:00 → Operators A, B
+
+Shift 2 (Afternoon): 14:00–22:00 → Operators C, D
+
+Shift 3 (Night): 22:00–06:00 → optional night team (only if configured)
+
+Operators may only be assigned setups that entirely fall inside their shift window unless an explicit overtime/override policy is provided.
+
+3. High-level setup scheduling rule
+
+EarliestPossibleSetupStart = max(piece1_ready_from_prev_operation, machine_available_after_previous_bookings, earliest_user_requested_setup_start)
+
+Clamp into Setup Window:
+
+If EarliestPossibleSetupStart < current shift start and operator required for that shift, either:
+
+Assign a different operator on the correct shift whose window contains the interval; OR
+
+Shift EarliestPossibleSetupStart forward to the next valid shift start (e.g., 14:00).
+
+Proposed Setup Interval = [SetupStartCandidate, SetupStartCandidate + SetupTime].
+
+Operator selection: find an on-shift operator free for the entire Proposed Setup Interval.
+
+If none found: delay SetupStartCandidate to earliest time when an on-shift operator becomes free (within Setup Window).
+
+Reserve: append Proposed Setup Interval to operatorCal[selectedOperator] and append the full operation interval (SetupStart → predicted RunEnd) to machineCal[selectedMachine] (machine exclusive).
+
+4. Operator assignment rules & tie-breakers
+
+When multiple operators are eligible, apply the following ordered tie-breakers:
+
+Operator on-duty for entire Proposed Interval (mandatory).
+
+Earliest free — operator whose availableFrom ≤ SetupStartCandidate.
+
+Least-loaded — operator with smallest sum of assigned setup minutes in the current shift.
+
+Round-robin / alphabetical fallback (A → B → C → D).
+
+Log the chosen reason (e.g., [ASSIGN] Operator A chosen — earliest-free).
+
+5. Concurrency & capacity enforcement
+
+Maximum concurrent setups in any shift = number of operators assigned to that shift (2 here).
+
+Implement by checking operatorCal for availability and by counting how many setups are active in that shift interval. If count ≥ capacity, delay the new setup.
+
+Never exceed operator capacity; if new setup would cause overflow, delay to earliest free operator time.
+
+6. Operator reuse (immediate availability)
+
+Operator released at SetupEnd and becomes immediately available for another setup that starts at or after SetupEnd (no implicit buffer).
+
+Reuse only if the next setup interval is entirely within the operator's shift window.
+
+Example: A finishes at 07:40; A can be assigned a setup starting 07:40 or later in same shift.
+
+7. Cross-shift setups & boundaries
+
+Prefer not to split a single setup across shifts. Rules:
+
+If a Proposed Setup would start before shift end and finish after it:
+
+Default policy: delay SetupStart to next shift start (do not split).
+
+Optional override (explicit): allow cross-shift if an operator is authorized for overtime and policy allows — must be configured and logged.
+
+Do not assign an operator whose shift does not entirely cover the setup interval (unless explicit override).
+
+8. Holidays & breakdown rules (affect setups)
+
+Global holidays and machine breakdowns are authoritative and must be parsed from the single source of truth table in the configured format.
+
+If Proposed Setup interval intersects a holiday or the machine is down during any portion of the Proposed Interval:
+
+Default: delay SetupStart to the earliest time after the holiday/breakdown window when both machine and an operator are available.
+
+If the holiday covers the whole day: schedule on the next non-holiday.
+
+Log every pause/shift: [HOLIDAY] SetupStart adjusted from X to Y due to holiday.
+
+9. Interaction with piece-level flow & machine availability
+
+Setup cannot start before the first piece is available from previous op (piece-level trigger). That is part of EarliestPossibleSetupStart (see section 3).
+
+Machine must be available (machineCal has no overlapping interval) for the whole run predicted. If machineCal shows it will be busy, scheduler may:
+
+Choose another eligible machine, OR
+
+Delay setup to match earliest free machine time, OR
+
+Apply rescue actions (see section 12).
+
+10. Rescue behaviors (automated strategies when due date at risk)
+
+If a batch's due date is in danger because setup cannot be scheduled soon enough:
+
+Try alternate eligible machines (simulate candidate intervals and pick one with earliest final RunEnd).
+
+Auto-split batch into smaller batches (subject to Minimum_BatchSize) and spread across multiple machines to shorten completion (policy: equal chunks unless configured).
+
+Preempt or delay lower priority work occupying eligible machine(s) — only if preemption policy allowed and logged.
+
+Escalate: If none feasible, set status ⚠️ and produce earliest feasible completion time + suggested mitigation.
+
+Always log the rescue action taken.
+
+11. Validation & post-schedule checks (must pass)
+
+Run these validators automatically; fail-fast and report conflicts:
+
+Operator overlap check: for every operator, no overlapping Setup intervals.
+
+Operator shift check: every setup assigned to an operator must be fully inside their shift window (unless override).
+
+Concurrent setup limit: at no time can active setups in a shift exceed operator count.
+
+Machine exclusivity check: machineCal intervals must not overlap (machine exclusive).
+
+Holiday/breakdown enforcement: each scheduled setup/run must not be scheduled to run through a holiday/breakdown without a pause/resume log.
+
+Due-date feasibility check: for each order, ensure either (a) RunEnd ≤ DueDate or (b) rescue action logged and result shown.
+
+If any validator fails, mark the schedule invalid and list conflicts.
+
+12. Required logs & telemetry (for each scheduled setup)
+
+Every scheduled setup must write a compact log entry with:
+
+[SETUP-ASSIGN] Part, Batch, OpSeq, Machine, Operator, SetupStart, SetupEnd, reason (tie-breaker code), operatorFreeAt, machineFreeAt.
+
+If delayed/adjusted: [SETUP-ADJUST] originalStart → newStart, cause = (operator_unavailable|machine_busy|holiday|breakdown)
+
+If rescue applied: [RESCUE] action=(REASSIGN|SPLIT|PREEMPT) details=...
+These logs are critical for debugging and auditing.
+
+13. Examples (concrete)
+Example A — parallel setups allowed
+
+Two batches both need a 70-minute setup at 06:00.
+
+Shift1 operators A and B available.
+
+Assign Batch1→Operator A (06:00–07:10), Batch2→Operator B (06:00–07:10).
+
+No third setup may start at 06:00; must wait until A or B becomes free.
+
+Example B — operator-shift mismatch (forbidden)
+
+Proposed: assign Operator D (14:00–22:00) a setup at 13:55–15:35.
+→ Reject. Either reassign to A/B (if available) or delay to 14:00 and assign D.
+
+Example C — reuse immediacy
+
+Operator A has Setup1 finishing at 07:40; Setup2 is scheduled at 07:40–08:50 → allowed (A reused immediately).
+
+Example D — holiday intersects setup
+
+Holiday 2025-09-07 covers whole day. Setup scheduled 2025-09-07 10:00 → 11:10 must be moved to earliest next non-holiday time with operator and machine available.
+
+14. Acceptance tests (run automatically)
+
+Operator Shift Test: Create setups targeting each operator outside and inside shifts; assert outside assignments fail.
+
+Concurrent Setup Test: Create 3 setups in same shift start; expect two assigned, third delayed.
+
+Immediate Reuse Test: Setup1 finish at T; Setup2 start at T; same operator allowed.
+
+Holiday Test: Setup inside holiday must be moved; log must show [HOLIDAY].
+
+Machine-Conflict Test: Attempt to schedule two setups whose operation-run intervals overlap on same machine → second must be rejected or assigned elsewhere.
+
+15. Short machine-friendly policy block (copy-paste)
+SetupPolicy:
+- SetupWindow: 06:00-22:00 IST.
+- Shift1: 06:00-14:00 -> A,B. Shift2: 14:00-22:00 -> C,D.
+- SetupStart >= max(piece1_ready, machine_free, requested_start).
+- Assign operator only if operator shift fully contains [SetupStart, SetupEnd] and operator free (no overlap).
+- Max concurrent setups per shift = number of operators in that shift.
+- Operator released at SetupEnd (immediately reusable).
+- If no operator free, delay to earliest operator-free time within SetupWindow.
+- If machine down / holiday intersects, delay to next free moment; log pause/resume.
+- If due-date risk, attempt reassign -> split -> preempt (log rescue action).
+- Validate: no operator overlap; no machine overlap; no setup outside allowed shift.
+
+16. Quick checklist for planners (human readable)
+
+Is SetupStart inside 06:00–22:00?
+
+Is the assigned operator on duty for the entire setup interval?
+
+Are A/B or C/D already running 2 setups at that time? If yes, delay.
+
+Does the machine have any booking that overlaps full operation (setup→run end)? If yes, pick another machine or delay.
+
+Does any holiday or breakdown cover the proposed interval? If yes, reschedule and log.Detailed Setup Rules — complete spec
+
+Below are explicit, unambiguous setup rules you can drop into your scheduler spec, UI, or hand to devs/operators. They cover every practical case (shift mapping, operator capacity, cross-shift behavior, holidays/breakdowns, reuse, validation, tie-breakers and examples). Timezone assumed: Asia/Kolkata (IST). Date/time format recommended: YYYY-MM-DD HH:mm (or a single canonical format for your system).
+
+1. Definitions & assumptions
+
+Setup = one-time preparation activity for a machine before pieces start processing for an operation on a batch.
+
+SetupStart → SetupEnd = exact interval reserved for the setup person and machine.
+
+Setup Window = allowed hours for setups (06:00–22:00 local). No setups outside this window unless explicit overtime/override.
+
+Operator = person who performs setup (A, B, C, D). Each operator has a shift.
+
+Operator Calendar (operatorCal[op]) = list of assigned setup intervals for that operator.
+
+Machine Calendar (machineCal[machine]) = list of booked intervals for the machine (includes the whole SetupStart → RunEnd interval for exclusivity).
+
+Piece-level trigger = first-piece-ready time from previous operation; setup for next operation can start no earlier than that (see piece-level rules).
+
+Concurrent setups allowed = at most #operators_in_shift (here 2) within the same shift window.
+
+2. Shift & operator mapping (immutable)
+
+Shift 1 (Morning): 06:00–14:00 → Operators A, B
+
+Shift 2 (Afternoon): 14:00–22:00 → Operators C, D
+
+Shift 3 (Night): 22:00–06:00 → optional night team (only if configured)
+
+Operators may only be assigned setups that entirely fall inside their shift window unless an explicit overtime/override policy is provided.
+
+3. High-level setup scheduling rule
+
+EarliestPossibleSetupStart = max(piece1_ready_from_prev_operation, machine_available_after_previous_bookings, earliest_user_requested_setup_start)
+
+Clamp into Setup Window:
+
+If EarliestPossibleSetupStart < current shift start and operator required for that shift, either:
+
+Assign a different operator on the correct shift whose window contains the interval; OR
+
+Shift EarliestPossibleSetupStart forward to the next valid shift start (e.g., 14:00).
+
+Proposed Setup Interval = [SetupStartCandidate, SetupStartCandidate + SetupTime].
+
+Operator selection: find an on-shift operator free for the entire Proposed Setup Interval.
+
+If none found: delay SetupStartCandidate to earliest time when an on-shift operator becomes free (within Setup Window).
+
+Reserve: append Proposed Setup Interval to operatorCal[selectedOperator] and append the full operation interval (SetupStart → predicted RunEnd) to machineCal[selectedMachine] (machine exclusive).
+
+4. Operator assignment rules & tie-breakers
+
+When multiple operators are eligible, apply the following ordered tie-breakers:
+
+Operator on-duty for entire Proposed Interval (mandatory).
+
+Earliest free — operator whose availableFrom ≤ SetupStartCandidate.
+
+Least-loaded — operator with smallest sum of assigned setup minutes in the current shift.
+
+Round-robin / alphabetical fallback (A → B → C → D).
+
+Log the chosen reason (e.g., [ASSIGN] Operator A chosen — earliest-free).
+
+5. Concurrency & capacity enforcement
+
+Maximum concurrent setups in any shift = number of operators assigned to that shift (2 here).
+
+Implement by checking operatorCal for availability and by counting how many setups are active in that shift interval. If count ≥ capacity, delay the new setup.
+
+Never exceed operator capacity; if new setup would cause overflow, delay to earliest free operator time.
+
+6. Operator reuse (immediate availability)
+
+Operator released at SetupEnd and becomes immediately available for another setup that starts at or after SetupEnd (no implicit buffer).
+
+Reuse only if the next setup interval is entirely within the operator's shift window.
+
+Example: A finishes at 07:40; A can be assigned a setup starting 07:40 or later in same shift.
+
+7. Cross-shift setups & boundaries
+
+Prefer not to split a single setup across shifts. Rules:
+
+If a Proposed Setup would start before shift end and finish after it:
+
+Default policy: delay SetupStart to next shift start (do not split).
+
+Optional override (explicit): allow cross-shift if an operator is authorized for overtime and policy allows — must be configured and logged.
+
+Do not assign an operator whose shift does not entirely cover the setup interval (unless explicit override).
+
+8. Holidays & breakdown rules (affect setups)
+
+Global holidays and machine breakdowns are authoritative and must be parsed from the single source of truth table in the configured format.
+
+If Proposed Setup interval intersects a holiday or the machine is down during any portion of the Proposed Interval:
+
+Default: delay SetupStart to the earliest time after the holiday/breakdown window when both machine and an operator are available.
+
+If the holiday covers the whole day: schedule on the next non-holiday.
+
+Log every pause/shift: [HOLIDAY] SetupStart adjusted from X to Y due to holiday.
+
+9. Interaction with piece-level flow & machine availability
+
+Setup cannot start before the first piece is available from previous op (piece-level trigger). That is part of EarliestPossibleSetupStart (see section 3).
+
+Machine must be available (machineCal has no overlapping interval) for the whole run predicted. If machineCal shows it will be busy, scheduler may:
+
+Choose another eligible machine, OR
+
+Delay setup to match earliest free machine time, OR
+
+Apply rescue actions (see section 12).
+
+10. Rescue behaviors (automated strategies when due date at risk)
+
+If a batch's due date is in danger because setup cannot be scheduled soon enough:
+
+Try alternate eligible machines (simulate candidate intervals and pick one with earliest final RunEnd).
+
+Auto-split batch into smaller batches (subject to Minimum_BatchSize) and spread across multiple machines to shorten completion (policy: equal chunks unless configured).
+
+Preempt or delay lower priority work occupying eligible machine(s) — only if preemption policy allowed and logged.
+
+Escalate: If none feasible, set status ⚠️ and produce earliest feasible completion time + suggested mitigation.
+
+Always log the rescue action taken.
+
+11. Validation & post-schedule checks (must pass)
+
+Run these validators automatically; fail-fast and report conflicts:
+
+Operator overlap check: for every operator, no overlapping Setup intervals.
+
+Operator shift check: every setup assigned to an operator must be fully inside their shift window (unless override).
+
+Concurrent setup limit: at no time can active setups in a shift exceed operator count.
+
+Machine exclusivity check: machineCal intervals must not overlap (machine exclusive).
+
+Holiday/breakdown enforcement: each scheduled setup/run must not be scheduled to run through a holiday/breakdown without a pause/resume log.
+
+Due-date feasibility check: for each order, ensure either (a) RunEnd ≤ DueDate or (b) rescue action logged and result shown.
+
+If any validator fails, mark the schedule invalid and list conflicts.
+
+12. Required logs & telemetry (for each scheduled setup)
+
+Every scheduled setup must write a compact log entry with:
+
+[SETUP-ASSIGN] Part, Batch, OpSeq, Machine, Operator, SetupStart, SetupEnd, reason (tie-breaker code), operatorFreeAt, machineFreeAt.
+
+If delayed/adjusted: [SETUP-ADJUST] originalStart → newStart, cause = (operator_unavailable|machine_busy|holiday|breakdown)
+
+If rescue applied: [RESCUE] action=(REASSIGN|SPLIT|PREEMPT) details=...
+These logs are critical for debugging and auditing.
+
+13. Examples (concrete)
+Example A — parallel setups allowed
+
+Two batches both need a 70-minute setup at 06:00.
+
+Shift1 operators A and B available.
+
+Assign Batch1→Operator A (06:00–07:10), Batch2→Operator B (06:00–07:10).
+
+No third setup may start at 06:00; must wait until A or B becomes free.
+
+Example B — operator-shift mismatch (forbidden)
+
+Proposed: assign Operator D (14:00–22:00) a setup at 13:55–15:35.
+→ Reject. Either reassign to A/B (if available) or delay to 14:00 and assign D.
+
+Example C — reuse immediacy
+
+Operator A has Setup1 finishing at 07:40; Setup2 is scheduled at 07:40–08:50 → allowed (A reused immediately).
+
+Example D — holiday intersects setup
+
+Holiday 2025-09-07 covers whole day. Setup scheduled 2025-09-07 10:00 → 11:10 must be moved to earliest next non-holiday time with operator and machine available.
+
+14. Acceptance tests (run automatically)
+
+Operator Shift Test: Create setups targeting each operator outside and inside shifts; assert outside assignments fail.
+
+Concurrent Setup Test: Create 3 setups in same shift start; expect two assigned, third delayed.
+
+Immediate Reuse Test: Setup1 finish at T; Setup2 start at T; same operator allowed.
+
+Holiday Test: Setup inside holiday must be moved; log must show [HOLIDAY].
+
+Machine-Conflict Test: Attempt to schedule two setups whose operation-run intervals overlap on same machine → second must be rejected or assigned elsewhere.
+
+15. Short machine-friendly policy block (copy-paste)
+SetupPolicy:
+- SetupWindow: 06:00-22:00 IST.
+- Shift1: 06:00-14:00 -> A,B. Shift2: 14:00-22:00 -> C,D.
+- SetupStart >= max(piece1_ready, machine_free, requested_start).
+- Assign operator only if operator shift fully contains [SetupStart, SetupEnd] and operator free (no overlap).
+- Max concurrent setups per shift = number of operators in that shift.
+- Operator released at SetupEnd (immediately reusable).
+- If no operator free, delay to earliest operator-free time within SetupWindow.
+- If machine down / holiday intersects, delay to next free moment; log pause/resume.
+- If due-date risk, attempt reassign -> split -> preempt (log rescue action).
+- Validate: no operator overlap; no machine overlap; no setup outside allowed shift.
+
+16. Quick checklist for planners (human readable)
+
+Is SetupStart inside 06:00–22:00?
+
+Is the assigned operator on duty for the entire setup interval?
+
+Are A/B or C/D already running 2 setups at that time? If yes, delay.
+
+Does the machine have any booking that overlaps full operation (setup→run end)? If yes, pick another machine or delay.
+
+Does any holiday or breakdown cover the proposed interval? If yes, reschedule and log.

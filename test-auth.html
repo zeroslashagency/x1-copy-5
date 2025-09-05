@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auth Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        .card { background: #f9f9f9; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+        pre { background: #333; color: #fff; padding: 15px; border-radius: 5px; overflow-x: auto; }
+        button { padding: 8px 16px; margin: 5px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h1>Auth Test</h1>
+    
+    <div class="card">
+        <h2>Test Authentication</h2>
+        <button id="testLogin">Test Login</button>
+        <button id="testLogout">Test Logout</button>
+        <button id="testSession">Check Session</button>
+        <div id="result" style="margin-top: 20px;"></div>
+    </div>
+
+    <script>
+        const supabaseUrl = 'https://sxnaopzgaddvziplrlbe.supabase.co';
+        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN4bmFvcHpnYWRkdnppcGxybGJlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY2MjUyODQsImV4cCI6MjA3MjIwMTI4NH0.o3UAaJtrNpVh_AsljSC1oZNkJPvQomedvtJlXTE3L6w';
+        const supabase = supabase.createClient(supabaseUrl, supabaseKey);
+
+        document.getElementById('testLogin').addEventListener('click', async () => {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = 'Logging in...';
+            
+            try {
+                const { data, error } = await supabase.auth.signInWithPassword({
+                    email: 'admin@example.com',
+                    password: 'admin123'
+                });
+                
+                if (error) throw error;
+                
+                resultDiv.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+                console.log('Login successful:', data);
+                
+                // Store the session
+                localStorage.setItem('supabase.auth.token', data.session.access_token);
+                
+                // Redirect after successful login
+                setTimeout(() => {
+                    window.location.href = 'index.html';
+                }, 1000);
+                
+            } catch (error) {
+                resultDiv.innerHTML = `Error: ${error.message}`;
+                console.error('Login error:', error);
+            }
+        });
+
+        document.getElementById('testLogout').addEventListener('click', async () => {
+            const { error } = await supabase.auth.signOut();
+            if (!error) {
+                localStorage.removeItem('supabase.auth.token');
+                document.getElementById('result').innerHTML = 'Logged out successfully';
+                console.log('Logged out');
+            }
+        });
+
+        document.getElementById('testSession').addEventListener('click', async () => {
+            const { data: { session } } = await supabase.auth.getSession();
+            document.getElementById('result').innerHTML = `<pre>${JSON.stringify(session, null, 2)}</pre>`;
+            console.log('Session:', session);
+        });
+
+        // Check initial session
+        supabase.auth.getSession().then(({ data: { session } }) => {
+            console.log('Initial session:', session);
+            if (session) {
+                document.getElementById('result').innerHTML = `Already logged in as: ${session.user.email}`;
+            }
+        });
+    </script>
+</body>
+</html>

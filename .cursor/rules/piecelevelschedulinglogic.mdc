@@ -1,0 +1,74 @@
+---
+alwaysApply: true
+---
+Prompt: Piece-Level Scheduling Logic Implementation
+Rule-based Scheduling Prompt (Piece-level → Batch Completion)
+TASK: Generate operation-wise timelines for all pieces in a batch,
+      then compute final batch completion times.
+
+INPUT DATA (per row):
+- PartNumber
+- Order_Quantity (e.g., 250)
+- Batch_ID
+- Batch_Qty (same as Order_Quantity if 1 batch)
+- OperationSeq
+- OperationName
+- Machine
+- Person
+- SetupTime_min (per operation, fixed once per batch)
+- CycleTime_min (per piece, repeated for each unit)
+
+RULES:
+1. For each (PartNumber, Batch_ID), sort rows by OperationSeq ascending.
+
+2. Each operation has:
+   - One-time setup duration (SetupTime_min).
+   - CycleTime_min × Batch_Qty total processing minutes if run sequentially.
+   - Operations run piece-by-piece (flow shop style): as soon as piece i is finished at Op_k,
+     it can move to Op_(k+1) if that machine’s setup is done.
+
+3. Timeline construction:
+   - Operation 1:
+     SetupStart = provided start (or earliest shift start).
+     SetupEnd   = SetupStart + SetupTime_min.
+     Piece1_RunStart = SetupEnd.
+     Piece1_RunEnd   = Piece1_RunStart + CycleTime_min.
+     PieceN_RunEnd   = Piece(N-1)_RunEnd + CycleTime_min.
+     Batch_RunEnd    = PieceN_RunEnd.
+
+   - Operation n > 1:
+     SetupStart = max( time piece1 available from (n-1), provided SetupStart if later ).
+     SetupEnd   = SetupStart + SetupTime_min.
+     Piece1_RunStart = max(SetupEnd, Piece1_Arrival_from_prev).
+     Piece1_RunEnd   = Piece1_RunStart + CycleTime_min.
+     Piece i_RunStart = max( Piece(i-1)_RunEnd, Piece i_Arrival_from_prev, SetupEnd ).
+     Piece i_RunEnd   = Piece i_RunStart + CycleTime_min.
+     Batch_RunEnd = PieceN_RunEnd.
+
+4. Output for each OperationSeq:
+   - SetupStart, SetupEnd
+   - RunStart (piece1 run start)
+   - RunEnd   (last piece finish, i.e. batch complete)
+   - For diagnostics: piece-level completion times (Piece1, Piece2, …, PieceN) may be logged.
+
+5. Constraints:
+   - RunEnd(OperationSeq n) must always ≥ RunEnd(OperationSeq n-1).
+   - If machine calendars / shifts are defined, insert pauses into both setup and run.
+
+OUTPUT FORMAT:
+CSV with columns:
+PartNumber, Batch_ID, OperationSeq, OperationName, Machine,
+SetupStart, SetupEnd, RunStart, RunEnd, Notes
+
+
+🔎 Example (your batch size = 3 demo we solved):
+
+Operation 1: Setup 07:00–08:10, RunEnd batch = 09:04
+
+Operation 2: Setup 08:28–09:38, RunEnd batch = 10:08
+
+Operation 3: Setup 09:48–10:58, RunEnd batch = 11:01
+
+Operation 4: Setup 10:59–12:09, RunEnd batch = 12:12
+
+⚡ If you feed in Batch_Qty = 250 instead of 3, the same rules will scale automatically, giving you the correct RunEnd for all 250 pcs (e.g., 250× cycle time).

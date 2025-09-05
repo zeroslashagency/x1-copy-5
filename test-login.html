@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Login Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; }
+        .container { margin-top: 50px; }
+        input, button { padding: 10px; margin: 5px 0; width: 100%; }
+        button { background: #4CAF50; color: white; border: none; cursor: pointer; }
+        .error { color: red; margin: 10px 0; }
+        .success { color: green; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Test Login</h2>
+        <div>
+            <input type="email" id="email" placeholder="Email" value="admin@example.com">
+        </div>
+        <div>
+            <input type="password" id="password" placeholder="Password" value="admin123">
+        </div>
+        <div>
+            <button onclick="login()">Login</button>
+        </div>
+        <div id="result" class="error"></div>
+        <div>
+            <h3>Session Info:</h3>
+            <pre id="sessionInfo">No active session</pre>
+        </div>
+    </div>
+
+    <script>
+        // Initialize Supabase
+        const supabaseUrl = 'https://sxnaopzgaddvziplrlbe.supabase.co';
+        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN4bmFvcHpnYWRkdnppcGxybGJlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY2MjUyODQsImV4cCI6MjA3MjIwMTI4NH0.o3UAaJtrNpVh_AsljSC1oZNkJPvQomedvtJlXTE3L6w';
+        
+        const supabase = supabase.createClient(supabaseUrl, supabaseKey, {
+            auth: {
+                autoRefreshToken: true,
+                persistSession: true,
+                detectSessionInUrl: true,
+                storage: window.localStorage
+            }
+        });
+
+        // Check session on load
+        checkSession();
+
+        async function login() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const resultDiv = document.getElementById('result');
+            
+            resultDiv.textContent = 'Logging in...';
+            resultDiv.className = '';
+            
+            try {
+                const { data, error } = await supabase.auth.signInWithPassword({
+                    email: email,
+                    password: password
+                });
+                
+                if (error) throw error;
+                
+                resultDiv.textContent = 'Login successful! Session created.';
+                resultDiv.className = 'success';
+                
+                // Show session info
+                checkSession();
+                
+                // Try to access protected data
+                fetchUserProfile(data.session.user.id);
+                
+            } catch (error) {
+                resultDiv.textContent = 'Error: ' + error.message;
+                resultDiv.className = 'error';
+                console.error('Login error:', error);
+            }
+        }
+        
+        async function checkSession() {
+            const { data: { session } } = await supabase.auth.getSession();
+            const sessionInfo = document.getElementById('sessionInfo');
+            
+            if (session) {
+                sessionInfo.textContent = JSON.stringify({
+                    user: {
+                        id: session.user.id,
+                        email: session.user.email,
+                        created_at: session.user.created_at
+                    },
+                    expires_at: new Date(session.expires_at * 1000).toISOString(),
+                    access_token: session.access_token.substring(0, 20) + '...',
+                    refresh_token: session.refresh_token.substring(0, 20) + '...'
+                }, null, 2);
+            } else {
+                sessionInfo.textContent = 'No active session';
+            }
+        }
+        
+        async function fetchUserProfile(userId) {
+            try {
+                const { data: profile, error } = await supabase
+                    .from('profiles')
+                    .select('*')
+                    .eq('id', userId)
+                    .single();
+                
+                if (error) throw error;
+                
+                console.log('User profile:', profile);
+                
+                // Try to access protected data
+                const { data: orders, error: ordersError } = await supabase
+                    .from('orders')
+                    .select('*')
+                    .limit(5);
+                
+                if (ordersError) throw ordersError;
+                
+                console.log('Sample orders:', orders);
+                
+            } catch (error) {
+                console.error('Error fetching profile or orders:', error);
+            }
+        }
+    </script>
+</body>
+</html>

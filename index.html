@@ -665,15 +665,6 @@
                         Logout
                     </button>
                 </div>
-                <div class="sync-controls">
-                    <button id="refreshDataBtn" class="btn btn-secondary" onclick="refreshRoutingData()">
-                        <span id="refreshIcon">🔄</span> Refresh Data
-                    </button>
-                    <div class="sync-status">
-                        <span id="syncStatus">📊 Local Data</span>
-                        <small id="lastSync">Last sync: Never</small>
-                    </div>
-                </div>
             </div>
             <div class="header">
                 <h1>🏭 Production Scheduler</h1>
@@ -1046,17 +1037,10 @@
                 }
                 
                 // Initialize your existing app
-                loadPersistedRoutingData();
-                loadPersistedLastSync();
-                
                 // Check if we have persisted data
                 if (window.OP_MASTER && window.OP_MASTER.length > 0) {
                     // Update UI with existing data
                     updateOrdersTable();
-                    initializeAutoSync();
-                } else {
-                    // Try to load data if none exists
-                    refreshRoutingData();
                 }
                 
                 // Set default due date
@@ -3029,280 +3013,14 @@
             });
         }
 
-        // Send updated dataset to local writer (Node/Express) to overwrite data.js on disk
-        function pushToLocalWriter(items) {
-            const url = 'http://localhost:3000/update-data';
-            fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ items }),
-                mode: 'cors'
-            })
-            .then(async (res) => {
-                if (!res.ok) throw new Error(await res.text());
-                return res.json();
-            })
-            .then((resp) => {
-                console.log('Local writer response:', resp);
-                showAlert(`Local database updated (data.js) with ${items.length} rows.`, 'success');
-            })
-            .catch((err) => {
-                console.warn('Local writer not available or failed:', err);
-                // Non-blocking: continue without failing UI
-                showAlert('Could not update local data.js automatically. Start the local writer or use Download data.js.', 'warning');
-            });
-        }
 
-        // JSONP helper to bypass CORS when allowed by server
-        function jsonpRequest(url, timeoutMs = 30000) {
-            return new Promise((resolve, reject) => {
-                const cbName = `__jsonp_cb_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-                const sep = url.includes('?') ? '&' : '?';
-                const src = `${url}${sep}callback=${cbName}`;
-                const script = document.createElement('script');
-                let settled = false;
 
-                const cleanup = () => {
-                    if (script.parentNode) script.parentNode.removeChild(script);
-                    try { delete window[cbName]; } catch (_) { window[cbName] = undefined; }
-                };
 
-                const timer = setTimeout(() => {
-                    if (settled) return;
-                    settled = true;
-                    cleanup();
-                    reject(new Error('JSONP timeout'));
-                }, timeoutMs);
 
-                window[cbName] = (data) => {
-                    if (settled) return;
-                    settled = true;
-                    clearTimeout(timer);
-                    cleanup();
-                    resolve(data);
-                };
 
-                script.onerror = () => {
-                    if (settled) return;
-                    settled = true;
-                    clearTimeout(timer);
-                    cleanup();
-                    reject(new Error('JSONP network error'));
-                };
 
-                script.src = src;
-                document.head.appendChild(script);
-            });
-        }
 
-        function refreshRoutingData() {
-            if (isRefreshing) return;
-            
-            isRefreshing = true;
-            const refreshBtn = document.getElementById('refreshDataBtn');
-            const refreshIcon = document.getElementById('refreshIcon');
-            const syncStatus = document.getElementById('syncStatus');
-            const lastSyncEl = document.getElementById('lastSync');
-            
-            // Update UI to show loading state
-            refreshBtn.disabled = true;
-            refreshIcon.classList.add('spinning');
-            syncStatus.textContent = '🔄 Syncing...';
-            
-            // Enhanced fetch with better error handling and timeout
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
-            
-            fetch(GOOGLE_SHEETS_API_URL, {
-                method: 'GET',
-                cache: 'no-cache',
-                signal: controller.signal
-            })
-                .then(response => {
-                    clearTimeout(timeoutId);
-                    if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                    }
-                    return response.json();
-                })
-                .then(data => {
-                    if (data.error) {
-                        throw new Error(data.error + (data.details ? ': ' + data.details : ''));
-                    }
-                    applyRoutingData(data);
-                })
-                .catch(error => {
-                    clearTimeout(timeoutId);
-                    console.error('Sync failed:', error);
-                    
-                    let errorMessage = 'Unknown error';
-                    if (error.name === 'AbortError') {
-                        errorMessage = 'Request timeout - check your internet connection';
-                    } else if (error.message.includes('Failed to fetch')) {
-                        errorMessage = 'Network error - verify Google Apps Script URL and deployment settings';
-                    } else if (error.message.includes('CORS')) {
-                        errorMessage = 'CORS error - redeploy Google Apps Script with proper permissions';
-                    } else {
-                        errorMessage = error.message;
-                    }
-                    // Try JSONP fallback on CORS or generic fetch failure
-                    if (errorMessage.includes('CORS') || errorMessage.includes('Network error')) {
-                        return jsonpRequest(GOOGLE_SHEETS_API_URL)
-                            .then(data => {
-                                if (data && data.error) throw new Error(data.error);
-                                applyRoutingData(data);
-                            })
-                            .catch(innerErr => {
-                                syncStatus.textContent = '❌ Sync Failed';
-                                showAlert(`Sync failed: ${errorMessage}`, 'error');
-                                console.log('Troubleshooting tips:', {
-                                    'Check URL': GOOGLE_SHEETS_API_URL,
-                                    'Verify deployment': 'Ensure Google Apps Script is deployed as Web App',
-                                    'Check permissions': 'Web App should have "Anyone with the link" access',
-                                    'Test directly': 'Try opening the API URL in a browser tab'
-                                });
-                            });
-                    } else {
-                        syncStatus.textContent = '❌ Sync Failed';
-                        showAlert(`Sync failed: ${errorMessage}`, 'error');
-                        console.log('Troubleshooting tips:', {
-                            'Check URL': GOOGLE_SHEETS_API_URL,
-                            'Verify deployment': 'Ensure Google Apps Script is deployed as Web App',
-                            'Check permissions': 'Web App should have "Anyone with the link" access',
-                            'Test directly': 'Try opening the API URL in a browser tab'
-                        });
-                    }
-                })
-                .finally(() => {
-                    // Reset UI state
-                    isRefreshing = false;
-                    refreshBtn.disabled = false;
-                    refreshIcon.classList.remove('spinning');
-                });
-        }
 
-        function updateLocalRoutingData(newItems) {
-            // Clear existing data
-            window.OP_MASTER = [];
-            
-            // Convert Google Sheets data to local format
-            newItems.forEach(item => {
-                window.OP_MASTER.push({
-                    PartNumber: String(item.PartNumber).trim(),
-                    OperationSeq: parseInt(item.OperationSeq) || 0,
-                    OperationName: item.OperationName || '',
-                    SetupTime_Min: parseFloat(item.SetupTime_Min) || 0,
-                    Operator: item.Operator || '',
-                    CycleTime_Min: parseFloat(item.CycleTime_Min) || 0,
-                    Minimum_BatchSize: parseInt(item.Minimum_BatchSize) || 1,
-                    EligibleMachines: Array.isArray(item.EligibleMachines) ? item.EligibleMachines : 
-                        (typeof item.EligibleMachines === 'string' ? 
-                            item.EligibleMachines.split(',').map(m => m.trim()).filter(m => m) : 
-                            ['VMC 1'])
-                });
-            });
-            
-            console.log(`Updated local routing data with ${window.OP_MASTER.length} records`);
-        }
-
-        // Persist to localStorage so data survives page reloads
-        function persistRoutingData() {
-            try {
-                localStorage.setItem('op_master', JSON.stringify(window.OP_MASTER));
-                console.log('Persisted OP_MASTER to localStorage');
-            } catch (e) {
-                console.warn('Failed to persist OP_MASTER:', e);
-            }
-        }
-
-        // Load from localStorage if present
-        function loadPersistedRoutingData() {
-            try {
-                const raw = localStorage.getItem('op_master');
-                if (raw) {
-                    const items = JSON.parse(raw);
-                    updateLocalRoutingData(items);
-                    const syncStatus = document.getElementById('syncStatus');
-                    syncStatus.textContent = '📦 Local Cache';
-                    console.log('Loaded OP_MASTER from localStorage');
-                }
-            } catch (e) {
-                console.warn('Failed to load persisted OP_MASTER:', e);
-            }
-        }
-
-        // Persist and restore last sync timestamp
-        function persistLastSync(date) {
-            try {
-                localStorage.setItem('op_master_last_sync', date.toISOString());
-            } catch (e) {
-                console.warn('Failed to persist last sync time:', e);
-            }
-        }
-
-        function loadPersistedLastSync() {
-            try {
-                const raw = localStorage.getItem('op_master_last_sync');
-                if (raw) {
-                    const dt = new Date(raw);
-                    if (!isNaN(dt.getTime())) {
-                        lastSyncTimestamp = dt;
-                        const lastSyncEl = document.getElementById('lastSync');
-                        lastSyncEl.textContent = `Last sync: ${dt.toLocaleString()}`;
-                    }
-                }
-            } catch (e) {
-                console.warn('Failed to load last sync time:', e);
-            }
-        }
-
-        // Download a fresh data.js file for the repo
-        function downloadDataJs() {
-            try {
-                const content = 'window.OP_MASTER = ' + JSON.stringify(window.OP_MASTER, null, 2) + ';\n';
-                const blob = new Blob([content], { type: 'application/javascript' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = 'data.js';
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-                showAlert('Downloaded updated data.js. Replace the file in your project to make it permanent.', 'success');
-            } catch (e) {
-                showAlert('Failed to build data.js: ' + e.message, 'error');
-            }
-        }
-
-        // Initialize auto-sync if enabled
-        function initializeAutoSync() {
-            if (AUTO_SYNC_INTERVAL_MINUTES > 0) {
-                setInterval(() => {
-                    if (!isRefreshing) {
-                        console.log('Auto-syncing routing data...');
-                        refreshRoutingData();
-                    }
-                }, AUTO_SYNC_INTERVAL_MINUTES * 60 * 1000);
-                
-                console.log(`Auto-sync enabled: every ${AUTO_SYNC_INTERVAL_MINUTES} minutes`);
-            }
-        }
-
-        // Initialize on page load
-        document.addEventListener('DOMContentLoaded', function() {
-            loadPersistedRoutingData();
-            loadPersistedLastSync();
-            initializeAutoSync();
-            
-            // Show initial sync status
-            const syncStatus = document.getElementById('syncStatus');
-            if (window.OP_MASTER && window.OP_MASTER.length > 0) {
-                syncStatus.textContent = '📊 Local Data';
-            } else {
-                syncStatus.textContent = '⚠️ No Data';
-            }
-        });
     </script>
 </body>
 </html>

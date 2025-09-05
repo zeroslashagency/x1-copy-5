@@ -77,6 +77,147 @@ class FixedUnifiedSchedulingEngine {
         this.batchResults = [];
     }
 
+    /**
+     * Calculate batch splitting based on total quantity and minimum batch size
+     * @param {number} totalQuantity - Total quantity to split
+     * @param {number} minBatchSize - Minimum batch size
+     * @returns {Array} Array of batch objects with batchId and quantity
+     */
+    calculateBatchSplitting(totalQuantity, minBatchSize, priority = 'normal', dueDate = null, startDate = null) {
+        Logger.log(`[BATCH-CALC] Calculating batch splitting: ${totalQuantity} pieces, min batch size: ${minBatchSize}, priority: ${priority}`);
+        
+        // SMART BATCH SPLITTING ALGORITHM
+        // Use 200-300 as default batch size for better efficiency
+        const DEFAULT_BATCH_SIZE = 250; // Optimal batch size
+        const MIN_BATCH_SIZE = Math.max(minBatchSize, 100); // Minimum 100 pieces per batch
+        
+        // PRIORITY-BASED BATCH SPLITTING LOGIC
+        let maxBatches;
+        let batchSizeMultiplier = 1.0;
+        
+        // Calculate deadline urgency if due date is provided
+        let deadlineUrgency = 1.0;
+        if (dueDate && startDate) {
+            const dueDateObj = new Date(dueDate);
+            const startDateObj = new Date(startDate);
+            const daysToDeadline = Math.ceil((dueDateObj.getTime() - startDateObj.getTime()) / (1000 * 60 * 60 * 24));
+            
+            if (daysToDeadline <= 1) {
+                deadlineUrgency = 0.5; // Very urgent - allow more batches
+            } else if (daysToDeadline <= 3) {
+                deadlineUrgency = 0.7; // Urgent - allow more batches
+            } else if (daysToDeadline <= 7) {
+                deadlineUrgency = 0.8; // Somewhat urgent
+            } else {
+                deadlineUrgency = 1.0; // Normal timeline
+            }
+            
+            Logger.log(`[BATCH-CALC] Deadline urgency: ${daysToDeadline} days = ${deadlineUrgency} urgency factor`);
+        }
+        
+        // PRIORITY-BASED BATCH LIMITS
+        if (priority.toLowerCase() === 'urgent' || priority.toLowerCase() === 'high') {
+            // High priority: Allow more batches for faster completion
+            if (totalQuantity <= 500) {
+                maxBatches = 4; // High priority: max 4 batches
+            } else if (totalQuantity <= 1000) {
+                maxBatches = 5; // High priority: max 5 batches
+            } else {
+                maxBatches = 6; // High priority: max 6 batches
+            }
+            batchSizeMultiplier = 0.8; // Smaller batches for faster completion
+            Logger.log(`[BATCH-CALC] High priority detected - allowing up to ${maxBatches} batches`);
+        } else if (priority.toLowerCase() === 'critical' || priority.toLowerCase() === 'emergency') {
+            // Critical priority: Maximum batches for fastest completion
+            if (totalQuantity <= 500) {
+                maxBatches = 5; // Critical: max 5 batches
+            } else if (totalQuantity <= 1000) {
+                maxBatches = 6; // Critical: max 6 batches
+            } else {
+                maxBatches = 8; // Critical: max 8 batches
+            }
+            batchSizeMultiplier = 0.6; // Much smaller batches for fastest completion
+            Logger.log(`[BATCH-CALC] Critical priority detected - allowing up to ${maxBatches} batches`);
+        } else {
+            // Normal priority: Standard batch limits
+            if (totalQuantity <= 500) {
+                maxBatches = 3; // Normal: max 3 batches
+            } else if (totalQuantity <= 1000) {
+                maxBatches = 4; // Normal: max 4 batches
+            } else {
+                maxBatches = 5; // Normal: max 5 batches
+            }
+            batchSizeMultiplier = 1.0; // Standard batch sizes
+        }
+        
+        // Apply deadline urgency to batch limits
+        if (deadlineUrgency < 1.0) {
+            maxBatches = Math.ceil(maxBatches / deadlineUrgency); // Allow more batches for urgent deadlines
+            batchSizeMultiplier *= deadlineUrgency; // Smaller batches for urgent deadlines
+            Logger.log(`[BATCH-CALC] Deadline urgency applied - adjusted to ${maxBatches} max batches`);
+        }
+        
+        // Calculate optimal batch size based on total quantity and priority
+        let optimalBatchSize;
+        if (totalQuantity <= 300) {
+            // Small quantities: use smaller batches
+            optimalBatchSize = Math.max(MIN_BATCH_SIZE, Math.ceil(totalQuantity / 2));
+        } else if (totalQuantity <= 600) {
+            // Medium quantities: use default batch size
+            optimalBatchSize = DEFAULT_BATCH_SIZE;
+        } else if (totalQuantity <= 1000) {
+            // Large quantities: use larger batches
+            optimalBatchSize = Math.min(DEFAULT_BATCH_SIZE + 50, Math.ceil(totalQuantity / 3));
+        } else {
+            // Very large quantities: use maximum efficient batch size
+            optimalBatchSize = Math.min(300, Math.ceil(totalQuantity / 4));
+        }
+        
+        // Apply priority-based batch size adjustment
+        optimalBatchSize = Math.ceil(optimalBatchSize * batchSizeMultiplier);
+        
+        // Calculate number of batches
+        let numBatches = Math.ceil(totalQuantity / optimalBatchSize);
+        
+        // Ensure we don't exceed maximum batches
+        if (numBatches > maxBatches) {
+            numBatches = maxBatches;
+            optimalBatchSize = Math.ceil(totalQuantity / numBatches);
+            Logger.log(`[BATCH-CALC] Limited to ${maxBatches} batches, adjusted batch size to ${optimalBatchSize}`);
+        }
+        
+        // Ensure we don't create batches smaller than minimum
+        if (optimalBatchSize < MIN_BATCH_SIZE) {
+            optimalBatchSize = MIN_BATCH_SIZE;
+            numBatches = Math.ceil(totalQuantity / optimalBatchSize);
+            Logger.log(`[BATCH-CALC] Adjusted to respect minimum batch size ${MIN_BATCH_SIZE}`);
+        }
+        
+        // Calculate final batch size (distribute evenly)
+        const batchSize = Math.ceil(totalQuantity / numBatches);
+        
+        const batches = [];
+        let remainingQuantity = totalQuantity;
+        
+        for (let i = 0; i < numBatches; i++) {
+            const batchId = `B${String(i + 1).padStart(2, '0')}`;
+            const batchQuantity = Math.min(batchSize, remainingQuantity);
+            
+            batches.push({
+                batchId: batchId,
+                quantity: batchQuantity,
+                batchIndex: i
+            });
+            
+            remainingQuantity -= batchQuantity;
+            
+            Logger.log(`[BATCH-CALC] Created ${batchId}: ${batchQuantity} pieces (remaining: ${remainingQuantity})`);
+        }
+        
+        Logger.log(`[BATCH-CALC] Final result: ${batches.length} batches created (max allowed: ${maxBatches})`);
+        return batches;
+    }
+
     setGlobalSettings(settings) {
         this.globalSettings = settings || {};
         
@@ -211,43 +352,68 @@ class FixedUnifiedSchedulingEngine {
             operations.sort((a, b) => a.OperationSeq - b.OperationSeq);
             Logger.log(`Operation sequences: ${operations.map(op => op.OperationSeq).join(' → ')}`);
 
+            // THREE-BATCH SPLITTING LOGIC
+            const totalQuantity = orderData.quantity;
+            const minBatchSize = operations[0].Minimum_BatchSize || 100; // Default minimum batch size
+            const batches = this.calculateBatchSplitting(totalQuantity, minBatchSize, orderData.priority, orderData.dueDate, orderData.startDateTime);
+            
+            Logger.log(`[BATCH-SPLITTING] Total Qty: ${totalQuantity}, Min Batch Size: ${minBatchSize}`);
+            Logger.log(`[BATCH-SPLITTING] Calculated Batches: ${batches.length} batches`);
+            batches.forEach((batch, index) => {
+                Logger.log(`[BATCH-SPLITTING] Batch ${index + 1}: ${batch.batchId} (${batch.quantity} pieces)`);
+            });
+
             const orderResults = [];
-            const batchQty = orderData.quantity;
             let previousSequenceFirstPieceDone = null; // When previous sequence's FIRST piece is done
             let previousOpRunEnd = null; // Track previous operation's run end for sequential completion enforcement
 
-            operations.forEach((operation, opIndex) => {
-                Logger.log(`\n--- SCHEDULING SEQUENCE ${operation.OperationSeq}: ${operation.OperationName} ---`);
+            // Process each batch through all operations
+            batches.forEach((batch, batchIndex) => {
+                Logger.log(`\n=== PROCESSING BATCH ${batch.batchId} (${batch.quantity} pieces) ===`);
                 
-                const opResult = this.scheduleOperation(
-                    operation,
-                    orderData,
-                    batchQty,
-                    previousSequenceFirstPieceDone, // Pass when previous sequence's first piece is done
-                    opIndex,
-                    previousOpRunEnd // Pass previous operation's run end for sequential completion enforcement
-                );
+                let batchPreviousSequenceFirstPieceDone = null;
+                let batchPreviousOpRunEnd = null;
                 
-                orderResults.push(opResult);
+                operations.forEach((operation, opIndex) => {
+                    Logger.log(`\n--- SCHEDULING BATCH ${batch.batchId} - SEQUENCE ${operation.OperationSeq}: ${operation.OperationName} ---`);
+                    
+                    const opResult = this.scheduleOperation(
+                        operation,
+                        orderData,
+                        batch.quantity, // Use batch quantity instead of total quantity
+                        batchPreviousSequenceFirstPieceDone, // Pass when previous sequence's first piece is done
+                        opIndex,
+                        batchPreviousOpRunEnd // Pass previous operation's run end for sequential completion enforcement
+                    );
+                    
+                    // Add batch information to the result
+                    opResult.Batch_ID = batch.batchId;
+                    opResult.Batch_Qty = batch.quantity;
+                    opResult.Batch_Index = batchIndex;
+                    
+                    orderResults.push(opResult);
+                    
+                    // Update person schedule (machine is already reserved in scheduleOperation)
+                    this.personSchedule[opResult.Person] = opResult.actualSetupEnd;
+                    
+                    // CRITICAL: Next sequence can start when this sequence's FIRST piece is done
+                    // This allows parallel processing within the same batch
+                    if (opResult.firstPieceDone) {
+                        batchPreviousSequenceFirstPieceDone = opResult.firstPieceDone;
+                    } else if (opResult.pieceCompletionTimes && opResult.pieceCompletionTimes.length > 0) {
+                        batchPreviousSequenceFirstPieceDone = opResult.pieceCompletionTimes[0];
+                    } else {
+                        batchPreviousSequenceFirstPieceDone = opResult.actualRunEnd;
+                    }
+                    
+                    // Track previous operation's run end for sequential completion enforcement
+                    batchPreviousOpRunEnd = opResult.actualRunEnd;
+                    
+                    Logger.log(`Batch ${batch.batchId} - Sequence ${operation.OperationSeq} first piece done at: ${batchPreviousSequenceFirstPieceDone.toISOString()}`);
+                    Logger.log(`Machine ${opResult.Machine} will be FREE after: ${opResult.actualRunEnd.toISOString()}`);
+                });
                 
-                // Update person schedule (machine is already reserved in scheduleOperation)
-                this.personSchedule[opResult.Person] = opResult.actualSetupEnd;
-                
-                // CRITICAL: Next sequence can start when this sequence's FIRST piece is done
-                // This allows parallel processing within the same batch
-                if (opResult.firstPieceDone) {
-                    previousSequenceFirstPieceDone = opResult.firstPieceDone;
-                } else if (opResult.pieceCompletionTimes && opResult.pieceCompletionTimes.length > 0) {
-                    previousSequenceFirstPieceDone = opResult.pieceCompletionTimes[0];
-                } else {
-                    previousSequenceFirstPieceDone = opResult.actualRunEnd;
-                }
-                
-                // Track previous operation's run end for sequential completion enforcement
-                previousOpRunEnd = opResult.actualRunEnd;
-                
-                Logger.log(`Sequence ${operation.OperationSeq} first piece done at: ${previousSequenceFirstPieceDone.toISOString()}`);
-                Logger.log(`Machine ${opResult.Machine} will be FREE after: ${opResult.actualRunEnd.toISOString()}`);
+                Logger.log(`=== BATCH ${batch.batchId} COMPLETE ===`);
             });
 
             // RULE 7: Check if order can meet due date
@@ -313,9 +479,81 @@ class FixedUnifiedSchedulingEngine {
         const spilloverResult = this.handleSetupSpillover(selectedPerson, preliminaryTiming.setupStart, preliminaryTiming.setupEnd, setupDuration);
         
         // Use actual setup times after spillover handling
-        const actualSetupStart = spilloverResult.actualSetupStart;
-        const actualSetupEnd = spilloverResult.actualSetupEnd;
-        const actualOperator = spilloverResult.operator;
+        let actualSetupStart = spilloverResult.actualSetupStart;
+        let actualSetupEnd = spilloverResult.actualSetupEnd;
+        let actualOperator = spilloverResult.operator;
+        
+        // CRITICAL FIX: Enhanced operator conflict resolution for multiple orders
+        // Try multiple operators and timing adjustments to avoid conflicts
+        let operatorFound = false;
+        let maxAttempts = 15; // Increased attempts for multiple orders
+        let attempt = 0;
+        
+        while (!operatorFound && attempt < maxAttempts) {
+            attempt++;
+            Logger.log(`[OPERATOR-SELECTION] Attempt ${attempt}: Trying ${actualOperator} at ${actualSetupStart.toISOString()}`);
+            
+            if (!this.hasOperatorConflict(actualOperator, actualSetupStart, actualSetupEnd)) {
+                operatorFound = true;
+                Logger.log(`[OPERATOR-SELECTION] ✅ Successfully selected ${actualOperator} at ${actualSetupStart.toISOString()}`);
+            } else {
+                Logger.log(`[OPERATOR-SELECTION] ❌ Conflict detected for ${actualOperator} at ${actualSetupStart.toISOString()}`);
+                
+                // Try alternative operators first
+                const operatorsOnShift = this.getOperatorsOnShift(actualSetupStart, actualSetupEnd);
+                let alternativeFound = false;
+                
+                for (const altOperator of operatorsOnShift) {
+                    if (altOperator !== actualOperator && !this.hasOperatorConflict(altOperator, actualSetupStart, actualSetupEnd)) {
+                        actualOperator = altOperator;
+                        alternativeFound = true;
+                        Logger.log(`[OPERATOR-SELECTION] ✅ Found alternative operator ${actualOperator}`);
+                        break;
+                    }
+                }
+                
+                if (!alternativeFound) {
+                    // If no alternative operator, try delaying the setup with smarter delays
+                    let delayMinutes;
+                    if (attempt <= 5) {
+                        delayMinutes = attempt * 30; // 30, 60, 90, 120, 150 minutes
+                    } else if (attempt <= 10) {
+                        delayMinutes = 150 + (attempt - 5) * 60; // 210, 270, 330, 390, 450 minutes
+                    } else {
+                        delayMinutes = 450 + (attempt - 10) * 120; // 570, 690, 810, 930, 1050 minutes
+                    }
+                    
+                    actualSetupStart = new Date(actualSetupStart.getTime() + delayMinutes * 60000);
+                    actualSetupEnd = new Date(actualSetupEnd.getTime() + delayMinutes * 60000);
+                    Logger.log(`[OPERATOR-SELECTION] ⚠️ Delaying setup by ${delayMinutes} minutes to ${actualSetupStart.toISOString()}`);
+                    
+                    // Re-select operator for the new time
+                    actualOperator = this.selectOptimalPerson(orderData, actualSetupStart, actualSetupEnd);
+                    
+                    // If still no operator available, try next shift
+                    if (attempt > 10) {
+                        const nextShiftStart = this.getNextShiftStart(actualSetupStart);
+                        actualSetupStart = nextShiftStart;
+                        actualSetupEnd = new Date(actualSetupStart.getTime() + (operation.SetupTime_Min || 0) * 60000);
+                        Logger.log(`[OPERATOR-SELECTION] 🔄 Moving to next shift: ${actualSetupStart.toISOString()}`);
+                        actualOperator = this.selectOptimalPerson(orderData, actualSetupStart, actualSetupEnd);
+                    }
+                }
+            }
+        }
+        
+        if (!operatorFound) {
+            // ENHANCED ERROR: Provide more detailed information about operator conflicts
+            const operatorStatus = [];
+            for (const [operator, intervals] of Object.entries(this.operatorSchedule)) {
+                const activeSetups = intervals.filter(interval => 
+                    interval.start <= actualSetupEnd && interval.end >= actualSetupStart
+                );
+                operatorStatus.push(`${operator}: ${activeSetups.length} active setups`);
+            }
+            
+            throw new Error(`[OPERATOR-CONFLICT] Unable to find available operator after ${maxAttempts} attempts. All operators are overbooked. Operator status: ${operatorStatus.join(', ')}. Consider reducing batch count or increasing operator capacity.`);
+        }
 
         // RULE 5: Select machine with NO CONFLICTS for the required time window
         const selectedMachine = this.selectOptimalMachine(
@@ -338,7 +576,7 @@ class FixedUnifiedSchedulingEngine {
             selectedMachine,
             actualOperator,
             actualSetupStart, // Use actual setup start after spillover handling
-            null, // No previous operation piece times for now - using simplified approach
+            previousSequenceFirstPieceDone ? [previousSequenceFirstPieceDone] : null, // Pass previous operation's first piece completion time for piece-level handoff
             previousOpRunEnd  // Pass previous operation's run end for sequential completion enforcement
         );
         
@@ -939,9 +1177,11 @@ class FixedUnifiedSchedulingEngine {
         // CALCULATE FIRST PIECE DONE TIME
         let firstPieceDoneTime;
         if (previousOpPieceCompletionTimes && previousOpPieceCompletionTimes.length > 0) {
-            // First piece ready when corresponding piece from previous operation completes
+            // PIECE-LEVEL HANDOFF: Current operation's first piece is ready when previous operation's first piece is ready
+            // This triggers the setup for the current operation
             firstPieceDoneTime = new Date(previousOpPieceCompletionTimes[0]);
-            Logger.log(`[USER-ALGORITHM] First piece ready from previous op: ${firstPieceDoneTime.toISOString()}`);
+            Logger.log(`[PIECE-LEVEL-HANDOFF] Previous op first piece ready at: ${firstPieceDoneTime.toISOString()}`);
+            Logger.log(`[PIECE-LEVEL-HANDOFF] This triggers setup for Op${operation.OperationSeq}`);
         } else {
             // First operation - first piece ready at setup end
             firstPieceDoneTime = new Date(setupEndTime);
@@ -955,7 +1195,8 @@ class FixedUnifiedSchedulingEngine {
         }
 
         // CALCULATE RUN START AND END TIMES
-        const runStartTime = new Date(Math.max(setupEndTime.getTime(), firstPieceDoneTime.getTime()));
+        // PIECE-LEVEL LOGIC: Run starts after setup is complete, regardless of when first piece was ready
+        const runStartTime = new Date(setupEndTime);
         let runEndTime = new Date(runStartTime.getTime() + totalRunDurationMs);
 
         // CRITICAL FIX: Implement CORRECT piece-level handoff logic
@@ -1237,6 +1478,33 @@ class FixedUnifiedSchedulingEngine {
         return availableOperators;
     }
     
+    getNextShiftStart(currentTime) {
+        const currentHour = currentTime.getHours();
+        
+        // Determine which shift we're currently in and get the next one
+        if (currentHour >= 6 && currentHour < 14) {
+            // Currently in morning shift (6-14), next is afternoon shift (14-22)
+            const nextShiftStart = new Date(currentTime);
+            nextShiftStart.setHours(14, 0, 0, 0);
+            return nextShiftStart;
+        } else if (currentHour >= 14 && currentHour < 22) {
+            // Currently in afternoon shift (14-22), next is morning shift next day (6-14)
+            const nextShiftStart = new Date(currentTime);
+            nextShiftStart.setDate(nextShiftStart.getDate() + 1);
+            nextShiftStart.setHours(6, 0, 0, 0);
+            return nextShiftStart;
+        } else {
+            // Currently in night hours (22-6), next is morning shift (6-14)
+            const nextShiftStart = new Date(currentTime);
+            if (currentHour >= 22) {
+                // After 22:00, next shift is tomorrow morning
+                nextShiftStart.setDate(nextShiftStart.getDate() + 1);
+            }
+            nextShiftStart.setHours(6, 0, 0, 0);
+            return nextShiftStart;
+        }
+    }
+    
     hasOperatorConflict(operator, setupStart, setupEnd) {
         const intervals = this.operatorSchedule[operator] || [];
         
@@ -1298,7 +1566,19 @@ class FixedUnifiedSchedulingEngine {
         for (const existing of this.operatorSchedule[operator]) {
             if (this.hasConflict(operator, candidateInterval)) {
                 Logger.log(`[OPERATOR-CONFLICT] ${operator} has conflicting setup: ${existing.start.toISOString()}-${existing.end.toISOString()}`);
-                throw new Error(`[SETUP-OVERBOOKING] Operator ${operator} has overlapping setup intervals: ${existing.start.toISOString()}-${existing.end.toISOString()} overlaps with ${setupStart.toISOString()}-${setupEnd.toISOString()}`);
+                
+                // Try one more time to resolve the conflict automatically
+                Logger.log(`[OPERATOR-CONFLICT] Attempting automatic conflict resolution...`);
+                const resolution = this.resolveOperatorConflict(operator, setupStart, setupEnd);
+                
+                if (resolution) {
+                    Logger.log(`[OPERATOR-CONFLICT] ✅ Auto-resolved: Using ${resolution.operator} at ${resolution.setupStart.toISOString()}`);
+                    // Reserve the resolved operator instead
+                    this.reserveOperator(resolution.operator, resolution.setupStart, resolution.setupEnd);
+                    return;
+                } else {
+                    throw new Error(`[SETUP-OVERBOOKING] Operator ${operator} has overlapping setup intervals: ${existing.start.toISOString()}-${existing.end.toISOString()} overlaps with ${setupStart.toISOString()}-${setupEnd.toISOString()}. Automatic resolution failed.`);
+                }
             }
         }
         
@@ -1581,9 +1861,23 @@ class FixedUnifiedSchedulingEngine {
     resolveOperatorConflict(operator, setupStart, setupEnd, maxRetries = 3) {
         Logger.log(`[CONFLICT-RESOLUTION] Attempting to resolve conflict for ${operator} at ${setupStart.toISOString()}`);
         
+        // First, try to find an alternative operator who is available
+        const operatorsOnShift = this.getOperatorsOnShift(setupStart, setupEnd);
+        for (const altOperator of operatorsOnShift) {
+            if (altOperator !== operator && !this.hasOperatorConflict(altOperator, setupStart, setupEnd)) {
+                Logger.log(`[CONFLICT-RESOLUTION] ✅ Found alternative operator ${altOperator}`);
+                return {
+                    operator: altOperator,
+                    setupStart: setupStart,
+                    setupEnd: setupEnd
+                };
+            }
+        }
+        
+        // If no alternative operator found, try delaying the setup
         for (let retry = 0; retry < maxRetries; retry++) {
             // Add increasing delay for each retry
-            const delayMinutes = (retry + 1) * 2; // 2, 4, 6 minutes
+            const delayMinutes = (retry + 1) * 10; // 10, 20, 30 minutes
             const adjustedSetupStart = new Date(setupStart.getTime() + delayMinutes * 60000);
             const adjustedSetupEnd = new Date(setupEnd.getTime() + delayMinutes * 60000);
             
@@ -1592,6 +1886,7 @@ class FixedUnifiedSchedulingEngine {
             if (!this.hasOperatorConflict(operator, adjustedSetupStart, adjustedSetupEnd)) {
                 Logger.log(`[CONFLICT-RESOLUTION] ✅ Conflict resolved with ${delayMinutes}min delay`);
                 return {
+                    operator: operator,
                     setupStart: adjustedSetupStart,
                     setupEnd: adjustedSetupEnd,
                     delayMinutes: delayMinutes
@@ -1708,8 +2003,8 @@ function runScheduling(ordersData, globalSettings = {}) {
                         PartNumber: order.partNumber,
                         Order_Quantity: order.quantity,
                         Priority: order.priority,
-                        Batch_ID: `${order.partNumber}-1`,
-                        Batch_Qty: order.quantity,
+                        Batch_ID: opResult.Batch_ID || `B01`,
+                        Batch_Qty: opResult.Batch_Qty || order.quantity,
                         OperationSeq: opResult.OperationSeq,
                         OperationName: opResult.OperationName,
                         Machine: opResult.Machine,
@@ -2209,15 +2504,154 @@ function diagnosePN11001Schedule() {
     return scheduleData;
 }
 
+// Global function to process a single order (for UI)
+window.processOrderSingle = function(order) {
+    try {
+        // Use the same data mapping as the main scheduler
+        const ordersData = [{
+            partNumber: order.partNumber,
+            quantity: order.quantity,
+            priority: order.priority,
+            dueDate: order.dueDate,
+            operations: (order.filteredOperations || order.operations).map(op => ({
+                OperationSeq: op.OperationSeq,
+                OperationName: op.OperationName,
+                SetupTime_Min: op.SetupTime_Min,
+                CycleTime_Min: op.CycleTime_Min,
+                EligibleMachines: op.EligibleMachines,
+                Minimum_BatchSize: op.Minimum_BatchSize
+            })),
+            breakdownMachine: order.breakdownMachine,
+            breakdownDateTime: order.breakdownDateTime,
+            startDateTime: order.startDateTime,
+            holidayRange: order.holidayRange,
+            setupWindow: order.setupWindow
+        }];
+
+        const globalSettings = {
+            startDateTime: null, // Will use current time
+            setupWindow: "06:00-22:00",
+            breakdownMachines: [],
+            breakdownDateTime: "",
+            holidays: [],
+            productionWindow: "24x7",
+            shifts: {
+                shift1: "06:00-14:00",
+                shift2: "14:00-22:00",
+                shift3: "22:00-06:00"
+            },
+            operatorShifts: {
+                'A': { start: 6, end: 14, shift: 'morning' },
+                'B': { start: 6, end: 14, shift: 'morning' },
+                'C': { start: 14, end: 22, shift: 'afternoon' },
+                'D': { start: 14, end: 22, shift: 'afternoon' }
+            }
+        };
+
+        // Use the x10-browser.js engine for single order processing
+        const result = window.runScheduling(ordersData, globalSettings);
+        return result;
+    } catch (error) {
+        console.error('Single order scheduling error:', error);
+        return {
+            rows: [],
+            alerts: [`Error processing ${order.partNumber}: ${error.message}`],
+            summary: { totalOrders: 0, totalOperations: 0, completedSuccessfully: 0 }
+        };
+    }
+};
+
 // Export for browser use
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = { runScheduling, FixedUnifiedSchedulingEngine, CONFIG };
 } else {
     window.runScheduling = runScheduling;
+    window.processOrderSingle = window.processOrderSingle;
     window.testPieceLevelScheduling = testPieceLevelScheduling;
     window.testUserAlgorithm = testUserAlgorithm;
     window.diagnoseScheduleIssues = diagnoseScheduleIssues;
     window.diagnosePN11001Schedule = diagnosePN11001Schedule;
     window.FixedUnifiedSchedulingEngine = FixedUnifiedSchedulingEngine;
     window.SCHEDULING_CONFIG = CONFIG;
+    
+    // Expose calculateBatchSplitting as a global function
+    window.calculateBatchSplitting = function(totalQuantity, minBatchSize, priority = 'normal', dueDate = null, startDate = null) {
+        try {
+            const engine = new FixedUnifiedSchedulingEngine();
+            const result = engine.calculateBatchSplitting(totalQuantity, minBatchSize, priority, dueDate, startDate);
+            console.log('Batch splitting result:', result);
+            return result;
+        } catch (error) {
+            console.error('Batch splitting error:', error);
+            // Improved fallback implementation with priority support
+            const DEFAULT_BATCH_SIZE = 250; // Optimal batch size
+            const MIN_BATCH_SIZE = Math.max(minBatchSize, 100); // Minimum 100 pieces per batch
+            
+            // Priority-based batch limits
+            let maxBatches;
+            let batchSizeMultiplier = 1.0;
+            
+            if (priority.toLowerCase() === 'urgent' || priority.toLowerCase() === 'high') {
+                if (totalQuantity <= 500) maxBatches = 4;
+                else if (totalQuantity <= 1000) maxBatches = 5;
+                else maxBatches = 6;
+                batchSizeMultiplier = 0.8;
+            } else if (priority.toLowerCase() === 'critical' || priority.toLowerCase() === 'emergency') {
+                if (totalQuantity <= 500) maxBatches = 5;
+                else if (totalQuantity <= 1000) maxBatches = 6;
+                else maxBatches = 8;
+                batchSizeMultiplier = 0.6;
+            } else {
+                if (totalQuantity <= 500) maxBatches = 3;
+                else if (totalQuantity <= 1000) maxBatches = 4;
+                else maxBatches = 5;
+                batchSizeMultiplier = 1.0;
+            }
+            
+            // Calculate optimal batch size
+            let optimalBatchSize;
+            if (totalQuantity <= 300) {
+                optimalBatchSize = Math.max(MIN_BATCH_SIZE, Math.ceil(totalQuantity / 2));
+            } else if (totalQuantity <= 600) {
+                optimalBatchSize = DEFAULT_BATCH_SIZE;
+            } else if (totalQuantity <= 1000) {
+                optimalBatchSize = Math.min(DEFAULT_BATCH_SIZE + 50, Math.ceil(totalQuantity / 3));
+            } else {
+                optimalBatchSize = Math.min(300, Math.ceil(totalQuantity / 4));
+            }
+            
+            optimalBatchSize = Math.ceil(optimalBatchSize * batchSizeMultiplier);
+            let numBatches = Math.ceil(totalQuantity / optimalBatchSize);
+            
+            if (numBatches > maxBatches) {
+                numBatches = maxBatches;
+                optimalBatchSize = Math.ceil(totalQuantity / numBatches);
+            }
+            
+            if (optimalBatchSize < MIN_BATCH_SIZE) {
+                optimalBatchSize = MIN_BATCH_SIZE;
+                numBatches = Math.ceil(totalQuantity / optimalBatchSize);
+            }
+            
+            const batchSize = Math.ceil(totalQuantity / numBatches);
+            const batches = [];
+            let remainingQuantity = totalQuantity;
+            
+            for (let i = 0; i < numBatches; i++) {
+                const batchId = `B${String(i + 1).padStart(2, '0')}`;
+                const batchQuantity = Math.min(batchSize, remainingQuantity);
+                
+                batches.push({
+                    batchId: batchId,
+                    quantity: batchQuantity,
+                    batchIndex: i
+                });
+                
+                remainingQuantity -= batchQuantity;
+            }
+            
+            console.log('Fallback batch splitting result:', batches);
+            return batches;
+        }
+    };
 }

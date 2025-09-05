@@ -11,6 +11,9 @@ app.use(cors());
 app.options('*', cors());
 app.use(express.json({ limit: '10mb' }));
 
+// Serve static files from the current directory
+app.use(express.static(__dirname));
+
 // Health check
 app.get('/health', (req, res) => {
   res.json({ ok: true, service: 'local-writer', cwd: process.cwd() });

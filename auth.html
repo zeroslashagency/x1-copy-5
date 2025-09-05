@@ -17,9 +17,8 @@
             auth: {
                 autoRefreshToken: true,
                 persistSession: true,
-                detectSessionInUrl: false, // Disable URL session detection to prevent loops
-                storage: window.localStorage,
-                flowType: 'pkce' // Use PKCE flow for better security
+                detectSessionInUrl: false,
+                storage: window.localStorage
             }
         });
         
@@ -208,27 +207,19 @@
                         window.history.replaceState({}, document.title, window.location.pathname);
                     }
                     
-                    // Check for valid session in localStorage
-                    const currentSession = JSON.parse(
-                        localStorage.getItem('sb-sxnaopzgaddvziplrlbe-auth-token') || 'null'
-                    );
+                    // Check for existing session using Supabase
+                    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
                     
-                    if (currentSession?.access_token) {
-                        console.log('Found session token, verifying...');
-                        
-                        // Verify the session
-                        const { data: { user }, error: userError } = await supabase.auth.getUser();
-                        
-                        if (!userError && user) {
-                            console.log('Valid session found, redirecting to index.html');
-                            window.location.href = 'index.html';
-                            return;
-                        } else {
-                            console.log('Session verification failed, clearing session');
-                            await supabase.auth.signOut();
-                        }
+                    if (!sessionError && session) {
+                        console.log('Valid session found, redirecting to index.html');
+                        // Use replace to prevent back button issues
+                        window.location.replace('index.html');
+                        return;
+                    } else if (sessionError) {
+                        console.log('Session error, clearing:', sessionError);
+                        await supabase.auth.signOut();
                     } else {
-                        console.log('No valid session found');
+                        console.log('No active session found');
                     }
                 }
                 
@@ -325,28 +316,20 @@
                     
                     console.log('Login successful, verifying session...');
                     
-                    try {
-                        // Small delay to ensure session is persisted
-                        await new Promise(resolve => setTimeout(resolve, 300));
-                        
-                        // Force refresh the session
-                        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-                        
-                        if (sessionError || !session) {
-                            console.error('Session verification failed:', sessionError);
-                            throw new Error('Session verification failed. Please try again.');
-                        }
-                        
-                        console.log('Session verified, redirecting to index.html');
-                        // Clear any URL parameters and redirect
-                        window.location.href = 'index.html';
-                        return;
-                    } catch (redirectError) {
-                        console.error('Redirect error:', redirectError);
-                        // If redirect fails, clear any partial session
-                        await supabase.auth.signOut();
-                        throw new Error('Login successful but failed to redirect. Please try again.');
+                    // Small delay to ensure session is persisted
+                    await new Promise(resolve => setTimeout(resolve, 300));
+                    
+                    // Force refresh the session
+                    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+                    
+                    if (sessionError || !session) {
+                        console.error('Session verification failed:', sessionError);
+                        throw new Error('Session verification failed. Please try again.');
                     }
+                    
+                    console.log('Session verified, redirecting to index.html');
+                    // Use replace to prevent back button issues
+                    window.location.replace('index.html');
                     
                 } catch (error) {
                     console.error('Login error:', error);
@@ -377,3 +360,4 @@
     </script>
 </body>
 </html>
+

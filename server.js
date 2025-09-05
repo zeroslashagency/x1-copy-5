@@ -19,6 +19,11 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
+// Auth route - serve auth.html
+app.get('/auth.html', (req, res) => {
+  res.sendFile(path.join(__dirname, 'auth.html'));
+});
+
 // Health check
 app.get('/health', (req, res) => {
   res.json({ ok: true, service: 'local-writer', cwd: process.cwd() });

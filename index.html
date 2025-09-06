@@ -2799,7 +2799,12 @@
         }
 
         function selectOptimalMachine(operation, machineSchedule, orderSettings = null) {
-            const eligibleMachines = operation.EligibleMachines;
+            let eligibleMachines = operation.EligibleMachines;
+            
+            // Convert string to array if needed (EligibleMachines is stored as comma-separated string)
+            if (typeof eligibleMachines === 'string') {
+                eligibleMachines = eligibleMachines.split(',').map(m => m.trim());
+            }
             
             // Filter out breakdown machines (use order-specific or global)
             const breakdownMachines = orderSettings ? orderSettings.breakdownMachines : getBreakdownMachines();

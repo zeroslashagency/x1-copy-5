@@ -445,7 +445,13 @@ class FixedUnifiedSchedulingEngine {
 
     scheduleOperation(operation, orderData, batchQty, previousSequenceFirstPieceDone, sequenceIndex, previousOpRunEnd = null) {
         // RULE 1: Check machine eligibility for this part
-        const eligibleMachines = operation.EligibleMachines || this.allMachines;
+        let eligibleMachines = operation.EligibleMachines || this.allMachines;
+        
+        // Convert string to array if needed (EligibleMachines is stored as comma-separated string)
+        if (typeof eligibleMachines === 'string') {
+            eligibleMachines = eligibleMachines.split(',').map(m => m.trim());
+        }
+        
         Logger.log(`Eligible machines for ${operation.OperationName}: ${eligibleMachines.join(', ')}`);
         
         // RULE 3: Calculate when this sequence can start

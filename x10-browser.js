@@ -637,7 +637,12 @@ class FixedUnifiedSchedulingEngine {
     }
 
     selectOptimalMachine(operation, orderData, setupStart, runEnd) {
-        const eligibleMachines = operation.EligibleMachines || this.allMachines;
+        let eligibleMachines = operation.EligibleMachines || this.allMachines;
+        
+        // Convert string to array if needed (EligibleMachines is stored as comma-separated string)
+        if (typeof eligibleMachines === 'string') {
+            eligibleMachines = eligibleMachines.split(',').map(m => m.trim());
+        }
         
         // Filter out breakdown machines
         const breakdownMachines = orderData.breakdownMachine ? 

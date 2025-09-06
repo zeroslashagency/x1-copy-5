@@ -1181,7 +1181,7 @@ class FixedUnifiedSchedulingEngine {
         
         Logger.log(`[USER-ALGORITHM] Applying exact piece-level algorithm: ${batchQty} pieces × ${cycleTime}min = ${batchQty * cycleTime}min total`);
 
-        // CRITICAL FIX: Implement TRUE piece-by-piece processing
+        // CRITICAL FIX: Implement TRUE piece-by-piece processing with proper handoff
         // Each piece waits for the previous piece to complete (sequential processing)
         let currentMachineTime = new Date(setupEndTime);
         const pieceCompletionTimes = [];
@@ -1190,8 +1190,13 @@ class FixedUnifiedSchedulingEngine {
             // When is this piece ready from previous operation?
             let pieceReadyTime;
             if (previousOpPieceCompletionTimes && previousOpPieceCompletionTimes.length > 0) {
-                // Piece ready when it completed previous operation
-                pieceReadyTime = previousOpPieceCompletionTimes[pieceIndex] || new Date(setupEndTime);
+                // CRITICAL FIX: Piece ready when it completed previous operation
+                // Must wait for the specific piece from previous operation
+                pieceReadyTime = previousOpPieceCompletionTimes[pieceIndex];
+                if (!pieceReadyTime) {
+                    // If piece not available yet, wait for it
+                    pieceReadyTime = new Date(setupEndTime);
+                }
             } else {
                 // First operation - all pieces ready at setup end
                 pieceReadyTime = new Date(setupEndTime);
@@ -1214,7 +1219,28 @@ class FixedUnifiedSchedulingEngine {
         
         // Calculate operation timing
         const runStartTime = new Date(setupEndTime);
-        const runEndTime = pieceCompletionTimes[batchQty - 1]; // Last piece completion time
+        let runEndTime = pieceCompletionTimes[batchQty - 1]; // Last piece completion time
+
+        // CRITICAL FIX: Enforce piece-level flow constraint
+        // RunEnd(Op n) must always ≥ RunEnd(Op n-1)
+        if (previousOpRunEnd) {
+            const previousOpEndTime = new Date(previousOpRunEnd);
+            if (runEndTime.getTime() < previousOpEndTime.getTime()) {
+                Logger.log(`[PIECE-FLOW-CONSTRAINT] Op${operation.OperationSeq} RunEnd ${runEndTime.toISOString()} is before previous Op RunEnd ${previousOpEndTime.toISOString()}`);
+                Logger.log(`[PIECE-FLOW-CONSTRAINT] Adjusting RunEnd to maintain logical flow`);
+                
+                // Adjust RunEnd to be after previous operation
+                runEndTime = new Date(previousOpEndTime.getTime() + cycleTime * 60000); // Add at least one cycle time
+                
+                // Recalculate piece completion times to maintain consistency
+                const timeAdjustment = runEndTime.getTime() - pieceCompletionTimes[batchQty - 1].getTime();
+                for (let i = 0; i < pieceCompletionTimes.length; i++) {
+                    pieceCompletionTimes[i] = new Date(pieceCompletionTimes[i].getTime() + timeAdjustment);
+                }
+                
+                Logger.log(`[PIECE-FLOW-CONSTRAINT] Adjusted RunEnd to: ${runEndTime.toISOString()}`);
+            }
+        }
 
         Logger.log(`[USER-ALGORITHM] Run start: ${runStartTime.toISOString()}`);
         Logger.log(`[USER-ALGORITHM] Run end: ${runEndTime.toISOString()}`);

@@ -86,135 +86,50 @@ class FixedUnifiedSchedulingEngine {
     calculateBatchSplitting(totalQuantity, minBatchSize, priority = 'normal', dueDate = null, startDate = null) {
         Logger.log(`[BATCH-CALC] Calculating batch splitting: ${totalQuantity} pieces, min batch size: ${minBatchSize}, priority: ${priority}`);
         
-        // SMART BATCH SPLITTING ALGORITHM
-        // Use 200-300 as default batch size for better efficiency
-        const DEFAULT_BATCH_SIZE = 250; // Optimal batch size
+        // USER'S SPECIFIC BATCH SPLITTING REQUIREMENTS
+        // Batch Qty maintain 300 above - if 600 you can split 300,300
+        const TARGET_BATCH_SIZE = 300; // User's preferred batch size
         const MIN_BATCH_SIZE = Math.max(minBatchSize, 100); // Minimum 100 pieces per batch
         
-        // PRIORITY-BASED BATCH SPLITTING LOGIC
-        let maxBatches;
-        let batchSizeMultiplier = 1.0;
+        // SIMPLE BATCH SPLITTING LOGIC
+        let batches = [];
         
-        // Calculate deadline urgency if due date is provided
-        let deadlineUrgency = 1.0;
-        if (dueDate && startDate) {
-            const dueDateObj = new Date(dueDate);
-            const startDateObj = new Date(startDate);
-            const daysToDeadline = Math.ceil((dueDateObj.getTime() - startDateObj.getTime()) / (1000 * 60 * 60 * 24));
-            
-            if (daysToDeadline <= 1) {
-                deadlineUrgency = 0.5; // Very urgent - allow more batches
-            } else if (daysToDeadline <= 3) {
-                deadlineUrgency = 0.7; // Urgent - allow more batches
-            } else if (daysToDeadline <= 7) {
-                deadlineUrgency = 0.8; // Somewhat urgent
-            } else {
-                deadlineUrgency = 1.0; // Normal timeline
-            }
-            
-            Logger.log(`[BATCH-CALC] Deadline urgency: ${daysToDeadline} days = ${deadlineUrgency} urgency factor`);
-        }
-        
-        // PRIORITY-BASED BATCH LIMITS
-        if (priority.toLowerCase() === 'urgent' || priority.toLowerCase() === 'high') {
-            // High priority: Allow more batches for faster completion
-            if (totalQuantity <= 500) {
-                maxBatches = 4; // High priority: max 4 batches
-            } else if (totalQuantity <= 1000) {
-                maxBatches = 5; // High priority: max 5 batches
-            } else {
-                maxBatches = 6; // High priority: max 6 batches
-            }
-            batchSizeMultiplier = 0.8; // Smaller batches for faster completion
-            Logger.log(`[BATCH-CALC] High priority detected - allowing up to ${maxBatches} batches`);
-        } else if (priority.toLowerCase() === 'critical' || priority.toLowerCase() === 'emergency') {
-            // Critical priority: Maximum batches for fastest completion
-            if (totalQuantity <= 500) {
-                maxBatches = 5; // Critical: max 5 batches
-            } else if (totalQuantity <= 1000) {
-                maxBatches = 6; // Critical: max 6 batches
-            } else {
-                maxBatches = 8; // Critical: max 8 batches
-            }
-            batchSizeMultiplier = 0.6; // Much smaller batches for fastest completion
-            Logger.log(`[BATCH-CALC] Critical priority detected - allowing up to ${maxBatches} batches`);
-        } else {
-            // Normal priority: Standard batch limits
-            if (totalQuantity <= 500) {
-                maxBatches = 3; // Normal: max 3 batches
-            } else if (totalQuantity <= 1000) {
-                maxBatches = 4; // Normal: max 4 batches
-            } else {
-                maxBatches = 5; // Normal: max 5 batches
-            }
-            batchSizeMultiplier = 1.0; // Standard batch sizes
-        }
-        
-        // Apply deadline urgency to batch limits
-        if (deadlineUrgency < 1.0) {
-            maxBatches = Math.ceil(maxBatches / deadlineUrgency); // Allow more batches for urgent deadlines
-            batchSizeMultiplier *= deadlineUrgency; // Smaller batches for urgent deadlines
-            Logger.log(`[BATCH-CALC] Deadline urgency applied - adjusted to ${maxBatches} max batches`);
-        }
-        
-        // Calculate optimal batch size based on total quantity and priority
-        let optimalBatchSize;
-        if (totalQuantity <= 300) {
-            // Small quantities: use smaller batches
-            optimalBatchSize = Math.max(MIN_BATCH_SIZE, Math.ceil(totalQuantity / 2));
-        } else if (totalQuantity <= 600) {
-            // Medium quantities: use default batch size
-            optimalBatchSize = DEFAULT_BATCH_SIZE;
-        } else if (totalQuantity <= 1000) {
-            // Large quantities: use larger batches
-            optimalBatchSize = Math.min(DEFAULT_BATCH_SIZE + 50, Math.ceil(totalQuantity / 3));
-        } else {
-            // Very large quantities: use maximum efficient batch size
-            optimalBatchSize = Math.min(300, Math.ceil(totalQuantity / 4));
-        }
-        
-        // Apply priority-based batch size adjustment
-        optimalBatchSize = Math.ceil(optimalBatchSize * batchSizeMultiplier);
-        
-        // Calculate number of batches
-        let numBatches = Math.ceil(totalQuantity / optimalBatchSize);
-        
-        // Ensure we don't exceed maximum batches
-        if (numBatches > maxBatches) {
-            numBatches = maxBatches;
-            optimalBatchSize = Math.ceil(totalQuantity / numBatches);
-            Logger.log(`[BATCH-CALC] Limited to ${maxBatches} batches, adjusted batch size to ${optimalBatchSize}`);
-        }
-        
-        // Ensure we don't create batches smaller than minimum
-        if (optimalBatchSize < MIN_BATCH_SIZE) {
-            optimalBatchSize = MIN_BATCH_SIZE;
-            numBatches = Math.ceil(totalQuantity / optimalBatchSize);
-            Logger.log(`[BATCH-CALC] Adjusted to respect minimum batch size ${MIN_BATCH_SIZE}`);
-        }
-        
-        // Calculate final batch size (distribute evenly)
-        const batchSize = Math.ceil(totalQuantity / numBatches);
-        
-        const batches = [];
-        let remainingQuantity = totalQuantity;
-        
-        for (let i = 0; i < numBatches; i++) {
-            const batchId = `B${String(i + 1).padStart(2, '0')}`;
-            const batchQuantity = Math.min(batchSize, remainingQuantity);
-            
+        if (totalQuantity <= TARGET_BATCH_SIZE) {
+            // Single batch for quantities <= 300
             batches.push({
-                batchId: batchId,
-                quantity: batchQuantity,
-                batchIndex: i
+                batchId: 'B01',
+                quantity: totalQuantity,
+                batchIndex: 0
             });
+            Logger.log(`[BATCH-CALC] Single batch: ${totalQuantity} pieces`);
+        } else {
+            // Split into batches of 300 each
+            let remainingQuantity = totalQuantity;
+            let batchIndex = 0;
             
-            remainingQuantity -= batchQuantity;
-            
-            Logger.log(`[BATCH-CALC] Created ${batchId}: ${batchQuantity} pieces (remaining: ${remainingQuantity})`);
+            while (remainingQuantity > 0) {
+                batchIndex++;
+                const batchId = `B${String(batchIndex).padStart(2, '0')}`;
+                
+                // Use 300 as batch size, but ensure last batch gets remaining pieces
+                const batchQuantity = Math.min(TARGET_BATCH_SIZE, remainingQuantity);
+                
+                batches.push({
+                    batchId: batchId,
+                    quantity: batchQuantity,
+                    batchIndex: batchIndex - 1
+                });
+                
+                remainingQuantity -= batchQuantity;
+                Logger.log(`[BATCH-CALC] Created ${batchId}: ${batchQuantity} pieces (remaining: ${remainingQuantity})`);
+            }
         }
         
-        Logger.log(`[BATCH-CALC] Final result: ${batches.length} batches created (max allowed: ${maxBatches})`);
+        Logger.log(`[BATCH-CALC] Final result: ${batches.length} batches created`);
+        batches.forEach((batch, index) => {
+            Logger.log(`[BATCH-CALC] Batch ${index + 1}: ${batch.batchId} (${batch.quantity} pieces)`);
+        });
+        
         return batches;
     }
 
@@ -2602,71 +2517,42 @@ if (typeof module !== 'undefined' && module.exports) {
             return result;
         } catch (error) {
             console.error('Batch splitting error:', error);
-            // Improved fallback implementation with priority support
-            const DEFAULT_BATCH_SIZE = 250; // Optimal batch size
+            // USER'S SPECIFIC BATCH SPLITTING REQUIREMENTS - FALLBACK
+            // Batch Qty maintain 300 above - if 600 you can split 300,300
+            const TARGET_BATCH_SIZE = 300; // User's preferred batch size
             const MIN_BATCH_SIZE = Math.max(minBatchSize, 100); // Minimum 100 pieces per batch
             
-            // Priority-based batch limits
-            let maxBatches;
-            let batchSizeMultiplier = 1.0;
+            let batches = [];
             
-            if (priority.toLowerCase() === 'urgent' || priority.toLowerCase() === 'high') {
-                if (totalQuantity <= 500) maxBatches = 4;
-                else if (totalQuantity <= 1000) maxBatches = 5;
-                else maxBatches = 6;
-                batchSizeMultiplier = 0.8;
-            } else if (priority.toLowerCase() === 'critical' || priority.toLowerCase() === 'emergency') {
-                if (totalQuantity <= 500) maxBatches = 5;
-                else if (totalQuantity <= 1000) maxBatches = 6;
-                else maxBatches = 8;
-                batchSizeMultiplier = 0.6;
-            } else {
-                if (totalQuantity <= 500) maxBatches = 3;
-                else if (totalQuantity <= 1000) maxBatches = 4;
-                else maxBatches = 5;
-                batchSizeMultiplier = 1.0;
-            }
-            
-            // Calculate optimal batch size
-            let optimalBatchSize;
-            if (totalQuantity <= 300) {
-                optimalBatchSize = Math.max(MIN_BATCH_SIZE, Math.ceil(totalQuantity / 2));
-            } else if (totalQuantity <= 600) {
-                optimalBatchSize = DEFAULT_BATCH_SIZE;
-            } else if (totalQuantity <= 1000) {
-                optimalBatchSize = Math.min(DEFAULT_BATCH_SIZE + 50, Math.ceil(totalQuantity / 3));
-            } else {
-                optimalBatchSize = Math.min(300, Math.ceil(totalQuantity / 4));
-            }
-            
-            optimalBatchSize = Math.ceil(optimalBatchSize * batchSizeMultiplier);
-            let numBatches = Math.ceil(totalQuantity / optimalBatchSize);
-            
-            if (numBatches > maxBatches) {
-                numBatches = maxBatches;
-                optimalBatchSize = Math.ceil(totalQuantity / numBatches);
-            }
-            
-            if (optimalBatchSize < MIN_BATCH_SIZE) {
-                optimalBatchSize = MIN_BATCH_SIZE;
-                numBatches = Math.ceil(totalQuantity / optimalBatchSize);
-            }
-            
-            const batchSize = Math.ceil(totalQuantity / numBatches);
-            const batches = [];
-            let remainingQuantity = totalQuantity;
-            
-            for (let i = 0; i < numBatches; i++) {
-                const batchId = `B${String(i + 1).padStart(2, '0')}`;
-                const batchQuantity = Math.min(batchSize, remainingQuantity);
-                
+            if (totalQuantity <= TARGET_BATCH_SIZE) {
+                // Single batch for quantities <= 300
                 batches.push({
-                    batchId: batchId,
-                    quantity: batchQuantity,
-                    batchIndex: i
+                    batchId: 'B01',
+                    quantity: totalQuantity,
+                    batchIndex: 0
                 });
+                console.log(`Fallback: Single batch: ${totalQuantity} pieces`);
+            } else {
+                // Split into batches of 300 each
+                let remainingQuantity = totalQuantity;
+                let batchIndex = 0;
                 
-                remainingQuantity -= batchQuantity;
+                while (remainingQuantity > 0) {
+                    batchIndex++;
+                    const batchId = `B${String(batchIndex).padStart(2, '0')}`;
+                    
+                    // Use 300 as batch size, but ensure last batch gets remaining pieces
+                    const batchQuantity = Math.min(TARGET_BATCH_SIZE, remainingQuantity);
+                    
+                    batches.push({
+                        batchId: batchId,
+                        quantity: batchQuantity,
+                        batchIndex: batchIndex - 1
+                    });
+                    
+                    remainingQuantity -= batchQuantity;
+                    console.log(`Fallback: Created ${batchId}: ${batchQuantity} pieces (remaining: ${remainingQuantity})`);
+                }
             }
             
             console.log('Fallback batch splitting result:', batches);

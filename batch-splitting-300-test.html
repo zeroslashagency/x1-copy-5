@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Batch Splitting Test - 300 Above Rule</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 8px; }
+        .success { background: #d4edda; border-color: #c3e6cb; }
+        .error { background: #f8d7da; border-color: #f5c6cb; }
+        table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+        th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background: #f8f9fa; font-weight: 600; }
+        .correct { color: #28a745; font-weight: bold; }
+        .incorrect { color: #dc3545; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>🔧 Batch Splitting Test - 300 Above Rule</h1>
+    <p>Testing: "Batch Qty maintain 300 above - if 600 you can split 300,300"</p>
+
+    <div class="test-section">
+        <h3>🔧 Test Controls</h3>
+        <button onclick="testBatchSplitting()">Test Batch Splitting</button>
+        <button onclick="clearResults()">Clear Results</button>
+    </div>
+
+    <div id="testResults"></div>
+
+    <script src="x10-browser.js"></script>
+    <script>
+        function testBatchSplitting() {
+            const resultsDiv = document.getElementById('testResults');
+            resultsDiv.innerHTML = '<h3>🔄 Testing Batch Splitting...</h3>';
+            
+            try {
+                // Test cases based on user's requirements
+                const testCases = [
+                    { quantity: 200, expected: "Single batch (200)" },
+                    { quantity: 300, expected: "Single batch (300)" },
+                    { quantity: 600, expected: "Two batches (300, 300)" },
+                    { quantity: 900, expected: "Three batches (300, 300, 300)" },
+                    { quantity: 1000, expected: "Four batches (300, 300, 300, 100)" },
+                    { quantity: 1200, expected: "Four batches (300, 300, 300, 300)" },
+                    { quantity: 1500, expected: "Five batches (300, 300, 300, 300, 300)" }
+                ];
+                
+                let allPassed = true;
+                let resultHtml = '<div class="test-section"><h4>📊 Batch Splitting Test Results</h4><table><tr><th>Quantity</th><th>Expected</th><th>Actual</th><th>Status</th></tr>';
+                
+                testCases.forEach(testCase => {
+                    const batches = window.calculateBatchSplitting(testCase.quantity, 100);
+                    
+                    // Analyze the result
+                    const analysis = analyzeBatchSplitting(testCase.quantity, batches);
+                    const status = analysis.correct ? '✅ Correct' : '❌ Incorrect';
+                    const statusClass = analysis.correct ? 'correct' : 'incorrect';
+                    
+                    if (!analysis.correct) allPassed = false;
+                    
+                    resultHtml += `
+                        <tr>
+                            <td>${testCase.quantity}</td>
+                            <td>${testCase.expected}</td>
+                            <td>${analysis.description}</td>
+                            <td class="${statusClass}">${status}</td>
+                        </tr>
+                    `;
+                });
+                
+                resultHtml += '</table>';
+                
+                // Overall status
+                const overallStatusClass = allPassed ? 'success' : 'error';
+                const overallStatusIcon = allPassed ? '✅' : '❌';
+                
+                resultHtml += `
+                    <h4>${overallStatusIcon} Overall Status: ${allPassed ? 'ALL TESTS PASSED' : 'SOME TESTS FAILED'}</h4>
+                `;
+                
+                // Detailed analysis for each test case
+                resultHtml += '<h4>📋 Detailed Analysis:</h4>';
+                testCases.forEach(testCase => {
+                    const batches = window.calculateBatchSplitting(testCase.quantity, 100);
+                    const analysis = analyzeBatchSplitting(testCase.quantity, batches);
+                    
+                    resultHtml += `
+                        <div style="margin: 10px 0; padding: 10px; border-left: 4px solid ${analysis.correct ? '#28a745' : '#dc3545'};">
+                            <strong>Qty ${testCase.quantity}:</strong> ${analysis.description}<br>
+                            <strong>Batches:</strong> ${batches.map(b => `${b.batchId}(${b.quantity})`).join(', ')}<br>
+                            <strong>Total:</strong> ${batches.reduce((sum, b) => sum + b.quantity, 0)} pieces<br>
+                            <strong>Status:</strong> ${analysis.correct ? '✅ Correct' : '❌ Incorrect'}
+                        </div>
+                    `;
+                });
+                
+                resultHtml += '</div>';
+                
+                resultsDiv.innerHTML = resultHtml;
+                
+            } catch (error) {
+                console.error('Test error:', error);
+                resultsDiv.innerHTML = `
+                    <div class="test-section error">
+                        <h4>❌ Test Error</h4>
+                        <p>${error.message}</p>
+                    </div>
+                `;
+            }
+        }
+
+        function analyzeBatchSplitting(quantity, batches) {
+            const totalBatches = batches.length;
+            const totalQuantity = batches.reduce((sum, batch) => sum + batch.quantity, 0);
+            
+            // Check if total quantity matches
+            if (totalQuantity !== quantity) {
+                return {
+                    correct: false,
+                    description: `❌ Total mismatch: ${totalQuantity} vs ${quantity}`
+                };
+            }
+            
+            // Check batch sizes
+            const batchSizes = batches.map(b => b.quantity);
+            const maxBatchSize = Math.max(...batchSizes);
+            const minBatchSize = Math.min(...batchSizes);
+            
+            // User's rule: Batch Qty maintain 300 above
+            if (quantity <= 300) {
+                // Single batch expected
+                if (totalBatches === 1) {
+                    return {
+                        correct: true,
+                        description: `✅ Single batch (${quantity})`
+                    };
+                } else {
+                    return {
+                        correct: false,
+                        description: `❌ Expected 1 batch, got ${totalBatches}`
+                    };
+                }
+            } else {
+                // Multiple batches expected, each should be 300 (except last one)
+                const expectedBatches = Math.ceil(quantity / 300);
+                if (totalBatches !== expectedBatches) {
+                    return {
+                        correct: false,
+                        description: `❌ Expected ${expectedBatches} batches, got ${totalBatches}`
+                    };
+                }
+                
+                // Check if all batches (except last) are 300
+                let correctSizes = true;
+                for (let i = 0; i < batches.length - 1; i++) {
+                    if (batches[i].quantity !== 300) {
+                        correctSizes = false;
+                        break;
+                    }
+                }
+                
+                if (correctSizes) {
+                    return {
+                        correct: true,
+                        description: `✅ ${totalBatches} batches (${batchSizes.join(', ')})`
+                    };
+                } else {
+                    return {
+                        correct: false,
+                        description: `❌ Batch sizes incorrect: ${batchSizes.join(', ')}`
+                    };
+                }
+            }
+        }
+
+        function clearResults() {
+            document.getElementById('testResults').innerHTML = '';
+        }
+
+        // Auto-run test on page load
+        window.addEventListener('load', () => {
+            setTimeout(testBatchSplitting, 1000);
+        });
+    </script>
+</body>
+</html>

@@ -7,6 +7,7 @@
     <!-- Add Supabase Auth UI CSS -->
     <link rel="stylesheet" href="https://unpkg.com/@supabase/auth-ui-shared@0.0.11/dist/components.css" />
     <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="excel_export.js"></script>
     <style>
         * {
             margin: 0;
@@ -56,7 +57,7 @@
         .form-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
+            gap: 10px;
             margin-bottom: 20px;
         }
 
@@ -485,6 +486,735 @@
             margin-top: 20px;
         }
 
+        /* Enhanced Schedule Results Table Styles */
+        #resultsTable {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        #resultsTable th {
+            background: linear-gradient(135deg, #34495e, #2c3e50);
+            color: white;
+            padding: 15px 10px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        #resultsTable td {
+            padding: 12px 10px;
+            border-bottom: 1px solid #ecf0f1;
+            font-size: 13px;
+        }
+
+        #resultsTable tr:hover {
+            background-color: #f8f9fa;
+        }
+
+        #resultsTable tr:nth-child(even) {
+            background-color: #f8f9fa;
+        }
+
+        .status-success {
+            color: #27ae60;
+            font-weight: bold;
+        }
+
+        .status-warning {
+            color: #f39c12;
+            font-weight: bold;
+        }
+
+        .status-danger {
+            color: #e74c3c;
+            font-weight: bold;
+        }
+
+        /* Priority-based table row colors */
+        #resultsTable tr.priority-urgent {
+            background-color: #ffebee !important;
+            border-left: 4px solid #e74c3c;
+        }
+
+        #resultsTable tr.priority-urgent:hover {
+            background-color: #ffcdd2 !important;
+        }
+
+        #resultsTable tr.priority-high {
+            background-color: #fff3e0 !important;
+            border-left: 4px solid #f39c12;
+        }
+
+        #resultsTable tr.priority-high:hover {
+            background-color: #ffe0b2 !important;
+        }
+
+        #resultsTable tr.priority-normal {
+            background-color: #e8f5e8 !important;
+            border-left: 4px solid #27ae60;
+        }
+
+        #resultsTable tr.priority-normal:hover {
+            background-color: #c8e6c9 !important;
+        }
+
+        #resultsTable tr.priority-low {
+            background-color: #f5f5f5 !important;
+            border-left: 4px solid #95a5a6;
+        }
+
+        #resultsTable tr.priority-low:hover {
+            background-color: #e0e0e0 !important;
+        }
+
+        .nowrap {
+            white-space: nowrap;
+            word-break: keep-all;
+        }
+
+        /* Advanced Settings Enhanced Styles */
+        .card h4 {
+            color: #34495e;
+            margin-bottom: 15px;
+            font-size: 1em;
+            font-weight: 600;
+        }
+
+        /* Advanced Settings layout grids */
+        .advanced-grid-3 {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            align-items: start;
+        }
+
+        .advanced-grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .shifts-container {
+            margin-top: 10px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border: 1px solid #e9ecef;
+        }
+
+        .shifts-container .form-group {
+            margin-bottom: 10px;
+        }
+
+        .shifts-container .form-group:last-child {
+            margin-bottom: 0;
+        }
+
+        .holiday-input-section, .breakdown-input-section {
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border: 1px solid #e9ecef;
+        }
+
+        .holiday-datetime-inputs, .breakdown-datetime-inputs {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        .datetime-pair {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .datetime-pair label {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+
+        .machine-checkbox-group {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .checkbox-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        .checkbox-item input[type="checkbox"] {
+            width: auto;
+            margin: 0;
+        }
+
+        .holiday-list-section, .breakdown-list-section {
+            margin-top: 20px;
+        }
+
+        .holiday-table, .breakdown-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .holiday-table th, .breakdown-table th {
+            background: linear-gradient(135deg, #34495e, #2c3e50);
+            color: white;
+            padding: 12px 10px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 13px;
+        }
+
+        .holiday-table td, .breakdown-table td {
+            padding: 10px;
+            border-bottom: 1px solid #ecf0f1;
+            font-size: 12px;
+        }
+
+        .holiday-table tr:hover, .breakdown-table tr:hover {
+            background-color: #f8f9fa;
+        }
+
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+            padding: 6px 12px;
+            font-size: 12px;
+        }
+
+        .btn-danger:hover {
+            background: #c82333;
+        }
+
+        /* Part Selection & Order Management Enhanced Styles */
+        .card h3 {
+            color: #34495e;
+            margin-bottom: 15px;
+            font-size: 1.1em;
+            font-weight: 600;
+        }
+
+        .priority-group {
+            display: flex;
+            gap: 15px;
+            margin-top: 5px;
+        }
+
+        .priority-option {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .priority-option input[type="radio"] {
+            width: auto;
+            margin: 0;
+        }
+
+        .three-way-toggle {
+            display: flex !important;
+            background: #e9ecef;
+            border-radius: 25px;
+            padding: 4px;
+            position: relative;
+            overflow: hidden;
+            width: 100%;
+            max-width: 600px;
+            height: 50px;
+            visibility: visible !important;
+            opacity: 1 !important;
+            border: 2px solid #dee2e6;
+            transition: all 0.3s ease;
+        }
+        
+        .three-way-toggle:hover {
+            border-color: #007bff;
+            box-shadow: 0 2px 8px rgba(0, 123, 255, 0.2);
+        }
+        
+        .toggle-option {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 10px 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border-radius: 20px;
+            position: relative;
+            z-index: 1;
+            font-size: 0.85rem;
+            min-height: 40px;
+            margin: 2px;
+            user-select: none;
+            min-width: 0;
+        }
+        
+        /* Base colors for each mode - all white by default */
+        .toggle-option[data-mode="single-batch"] {
+            background: white; /* White background */
+            color: #666; /* Neutral text color */
+        }
+        
+        .toggle-option[data-mode="auto-split"] {
+            background: white; /* White background */
+            color: #666; /* Neutral text color */
+        }
+        
+        .toggle-option[data-mode="custom-batch-size"] {
+            background: white; /* White background */
+            color: #666; /* Neutral text color */
+        }
+        
+        .toggle-option.active {
+            color: white;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+            transform: scale(1.02);
+        }
+        
+        /* Color coding for different modes - more specific to override base white */
+        .toggle-option[data-mode="single-batch"].active {
+            background: #28a745 !important; /* Green for Single Batch */
+            color: white !important;
+        }
+        
+        .toggle-option[data-mode="auto-split"].active {
+            background: #dc3545 !important; /* Red for Auto-Split */
+            color: white !important;
+        }
+        
+        .toggle-option[data-mode="custom-batch-size"].active {
+            background: #ffc107 !important; /* Yellow for Custom Size */
+            color: #212529 !important; /* Dark text for better contrast on yellow */
+        }
+        
+        /* Priority toggle colors - specific to priorityToggle */
+        #priorityToggle .toggle-option[data-mode="urgent"] {
+            background: white; /* White background */
+            color: #666; /* Neutral text color */
+        }
+        
+        #priorityToggle .toggle-option[data-mode="high"] {
+            background: white; /* White background */
+            color: #666; /* Neutral text color */
+        }
+        
+        #priorityToggle .toggle-option[data-mode="normal"] {
+            background: white; /* White background */
+            color: #666; /* Neutral text color */
+        }
+        
+        #priorityToggle .toggle-option[data-mode="low"] {
+            background: white; /* White background */
+            color: #666; /* Neutral text color */
+        }
+        
+        #priorityToggle .toggle-option[data-mode="urgent"].active {
+            background: #dc3545 !important; /* Red for Urgent */
+            color: white !important;
+        }
+        
+        #priorityToggle .toggle-option[data-mode="high"].active {
+            background: #fd7e14 !important; /* Orange for High */
+            color: white !important;
+        }
+        
+        #priorityToggle .toggle-option[data-mode="normal"].active {
+            background: #28a745 !important; /* Green for Normal */
+            color: white !important;
+        }
+        
+        #priorityToggle .toggle-option[data-mode="low"].active {
+            background: #90ee90 !important; /* Light green for Low */
+            color: #212529 !important; /* Dark text for contrast */
+        }
+        
+        .toggle-option:hover:not(.active) {
+            background: #dee2e6;
+            transform: scale(1.01);
+        }
+        
+        /* Hover effects - subtle gray */
+        .toggle-option[data-mode="single-batch"]:hover:not(.active) {
+            background: #f8f9fa; /* Light gray hover */
+        }
+        
+        .toggle-option[data-mode="auto-split"]:hover:not(.active) {
+            background: #f8f9fa; /* Light gray hover */
+        }
+        
+        .toggle-option[data-mode="custom-batch-size"]:hover:not(.active) {
+            background: #f8f9fa; /* Light gray hover */
+        }
+        
+        .toggle-icon {
+            margin-right: 4px;
+            font-size: 0.9rem;
+            font-weight: bold;
+            flex-shrink: 0;
+        }
+        
+        .toggle-text {
+            font-size: 0.8rem;
+            font-weight: 600;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            flex: 1;
+            text-align: center;
+        }
+        
+        /* Priority toggle text specific styling */
+        #priorityToggle .toggle-text {
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: #666 !important; /* Ensure text is visible */
+            white-space: nowrap;
+            overflow: visible; /* Allow text to be fully visible */
+            text-overflow: unset; /* Remove ellipsis truncation */
+            flex: 1;
+            text-align: center;
+            min-width: 0; /* Allow text to shrink if needed */
+        }
+        
+        #priorityToggle .toggle-option.active .toggle-text {
+            color: white !important; /* White text on colored backgrounds */
+        }
+        
+        #priorityToggle .toggle-option[data-mode="low"].active .toggle-text {
+            color: #212529 !important; /* Dark text on light green background */
+        }
+        
+        /* Priority toggle container specific styling */
+        #priorityToggle {
+            display: flex !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            height: 50px !important;
+            max-width: 700px !important; /* Increased from 600px */
+            width: 100% !important;
+        }
+        
+        #priorityToggle .toggle-option {
+            display: flex !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            min-height: 40px !important;
+            padding: 10px 12px !important; /* Increased horizontal padding */
+            margin: 2px !important;
+            min-width: 0 !important; /* Allow options to shrink if needed */
+            flex: 1 !important; /* Equal distribution of space */
+        }
+        
+        #customBatchSize {
+            width: 70px !important;
+            padding: 4px !important;
+            border: 1px solid #ddd !important;
+            border-radius: 4px !important;
+            background: #ffc107 !important; /* Yellow background to match active state */
+            color: #212529 !important; /* Dark text for contrast */
+            margin: 0 2px !important;
+            font-size: 0.8rem !important;
+            flex-shrink: 0;
+        }
+
+        .part-input-container {
+            position: relative;
+        }
+
+        .part-suggestions {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: white;
+            border: 1px solid #e1e8ed;
+            border-top: none;
+            border-radius: 0 0 8px 8px;
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 1000;
+            display: none;
+        }
+
+        .suggestion-item {
+            padding: 10px 12px;
+            cursor: pointer;
+            border-bottom: 1px solid #f8f9fa;
+        }
+
+        .suggestion-item:hover {
+            background-color: #f8f9fa;
+        }
+
+        .operation-dropdown-container {
+            position: relative;
+        }
+
+        .operation-selector {
+            display: flex;
+            align-items: center;
+        }
+
+        .operation-selector input {
+            flex: 1;
+            border-radius: 8px 0 0 8px;
+        }
+
+        .operation-btn {
+            padding: 12px 15px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 0 8px 8px 0;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+
+        .operation-btn:hover {
+            background: #5a6fd8;
+        }
+
+        .operation-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .operation-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: white;
+            border: 1px solid #e1e8ed;
+            border-top: none;
+            border-radius: 0 0 8px 8px;
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 1000;
+        }
+
+        .operation-option {
+            padding: 10px 12px;
+            cursor: pointer;
+            border-bottom: 1px solid #f8f9fa;
+        }
+
+        .operation-option:hover {
+            background-color: #f8f9fa;
+        }
+
+        .optional-overrides-section {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 2px solid #e1e8ed;
+        }
+
+        .collapsible-header {
+            cursor: pointer;
+            padding: 10px 0;
+            color: #667eea;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .collapsible-header:hover {
+            color: #5a6fd8;
+        }
+
+        .form-actions {
+            display: flex;
+            gap: 15px;
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #e1e8ed;
+        }
+
+        /* Saved Orders Management Enhanced Styles */
+        .saved-orders-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .priority-badge {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .priority-urgent {
+            background: #ffebee;
+            color: #c62828;
+        }
+
+        .priority-high {
+            background: #fff3e0;
+            color: #ef6c00;
+        }
+
+        .priority-normal {
+            background: #e8f5e8;
+            color: #2e7d32;
+        }
+
+        .priority-low {
+            background: #f5f5f5;
+            color: #616161;
+        }
+
+        .batch-mode-badge {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 10px;
+            font-weight: 600;
+        }
+
+        .batch-mode-auto-split {
+            background: #ffebee;
+            color: #c62828;
+        }
+
+        .batch-mode-single-batch {
+            background: #e8f5e8;
+            color: #2e7d32;
+        }
+
+        .batch-mode-custom {
+            background: #fff3e0;
+            color: #ef6c00;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 5px;
+            flex-wrap: wrap;
+        }
+        
+        /* Light colored action buttons for Saved Orders */
+        .action-buttons .btn {
+            border: 1px solid #dee2e6 !important;
+            padding: 6px 10px !important;
+            font-size: 12px !important;
+            border-radius: 4px !important;
+            transition: all 0.2s ease !important;
+            box-shadow: none !important;
+        }
+        
+        .action-buttons .btn-primary {
+            background: rgba(102, 126, 234, 0.2) !important; /* Light blue-purple */
+            color: #667eea !important;
+        }
+        
+        .action-buttons .btn-primary:hover {
+            background: rgba(102, 126, 234, 0.3) !important;
+            color: #5a6fd8 !important;
+        }
+        
+        .action-buttons .btn-warning {
+            background: rgba(255, 193, 7, 0.2) !important; /* Light yellow */
+            color: #ffc107 !important;
+        }
+        
+        .action-buttons .btn-warning:hover {
+            background: rgba(255, 193, 7, 0.3) !important;
+            color: #e0a800 !important;
+        }
+        
+        .action-buttons .btn-info {
+            background: rgba(23, 162, 184, 0.2) !important; /* Light teal-blue */
+            color: #17a2b8 !important;
+        }
+        
+        .action-buttons .btn-info:hover {
+            background: rgba(23, 162, 184, 0.3) !important;
+            color: #138496 !important;
+        }
+        
+        .action-buttons .btn-danger {
+            background: rgba(231, 76, 60, 0.2) !important; /* Light red */
+            color: #e74c3c !important;
+        }
+        
+        .action-buttons .btn-danger:hover {
+            background: rgba(231, 76, 60, 0.3) !important;
+            color: #c0392b !important;
+        }
+
+        .btn-warning {
+            background: #ffc107;
+            color: #212529;
+        }
+
+        .btn-warning:hover {
+            background: #e0a800;
+        }
+
+        .btn-info {
+            background: #17a2b8;
+            color: white;
+        }
+
+        .btn-info:hover {
+            background: #138496;
+        }
+
+        .empty-state {
+            text-align: center;
+            color: #888;
+            padding: 40px 20px;
+            font-style: italic;
+        }
+
+        /* Alert styles for notifications */
+        .alert {
+            padding: 12px 16px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-weight: 500;
+        }
+
+        .alert-success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .alert-error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .alert-info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
         table {
             width: 100%;
             border-collapse: collapse;
@@ -660,10 +1390,8 @@
             <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
                 <h2>Production Schedule Generator</h2>
                 <div style="display: flex; align-items: center; gap: 1rem;">
-                    <span id="userInfo" style="font-size: 0.9rem; color: #666;"></span>
-                    <button id="logoutBtn" class="btn btn-secondary" style="padding: 0.3rem 0.8rem; font-size: 0.9rem;">
-                        Logout
-                    </button>
+                    <div id="userRoleIndicator" style="padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: bold;"></div>
+                    <button class="btn btn-danger" onclick="logout()">Logout</button>
                 </div>
             </div>
             <div class="header">
@@ -710,35 +1438,67 @@
                     </div>
 
                     <div class="form-group">
+                        <label>Priority</label>
+                        <div class="three-way-toggle" id="priorityToggle">
+                            <div class="toggle-option" data-mode="urgent">
+                                <span class="toggle-icon">🔴</span>
+                                <span class="toggle-text">Urgent</span>
+                            </div>
+                            <div class="toggle-option" data-mode="high">
+                                <span class="toggle-icon">🟠</span>
+                                <span class="toggle-text">High</span>
+                            </div>
+                            <div class="toggle-option active" data-mode="normal">
+                                <span class="toggle-icon">🟡</span>
+                                <span class="toggle-text">Normal</span>
+                            </div>
+                            <div class="toggle-option" data-mode="low">
+                                <span class="toggle-icon">🟢</span>
+                                <span class="toggle-text">Low</span>
+                            </div>
+                        </div>
+                        <!-- Hidden radio inputs for form submission -->
+                        <input type="radio" id="priorityUrgent" name="priority" value="Urgent" style="display: none;">
+                        <input type="radio" id="priorityHigh" name="priority" value="High" style="display: none;">
+                        <input type="radio" id="priorityNormal" name="priority" value="Normal" checked style="display: none;">
+                        <input type="radio" id="priorityLow" name="priority" value="Low" style="display: none;">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="dueDate">Due Date</label>
+                        <input type="date" id="dueDate">
+                        <small style="color: #666; font-size: 0.8rem;">Optional - Leave blank for no due date constraint</small>
+                    </div>
+
+                    <div class="form-group">
                         <label for="orderQuantity">Order Quantity</label>
                         <input type="number" id="orderQuantity" min="1" required>
                     </div>
 
                     <div class="form-group">
-                        <label>Priority</label>
-                        <div class="priority-group">
-                            <div class="priority-option">
-                                <input type="radio" id="priorityUrgent" name="priority" value="Urgent">
-                                <label for="priorityUrgent">Urgent</label>
+                        <label>Batch Mode Switch</label>
+                        <div class="three-way-toggle">
+                            <div class="toggle-option" data-mode="single-batch">
+                                <span class="toggle-icon">◀</span>
+                                <span class="toggle-text">Single</span>
                             </div>
-                            <div class="priority-option">
-                                <input type="radio" id="priorityHigh" name="priority" value="High">
-                                <label for="priorityHigh">High</label>
+                            
+                            <div class="toggle-option" data-mode="auto-split">
+                                <span class="toggle-icon">⭕</span>
+                                <span class="toggle-text">Auto-Split</span>
                             </div>
-                            <div class="priority-option">
-                                <input type="radio" id="priorityNormal" name="priority" value="Normal" checked>
-                                <label for="priorityNormal">Normal</label>
-                            </div>
-                            <div class="priority-option">
-                                <input type="radio" id="priorityLow" name="priority" value="Low">
-                                <label for="priorityLow">Low</label>
+                            
+                            <div class="toggle-option" data-mode="custom-batch-size">
+                                <span class="toggle-text" id="customSizeText">Custom</span>
+                                <input type="number" id="customBatchSize" min="1" placeholder="Size" style="width: 100px; padding: 4px; border: 1px solid #ddd; border-radius: 4px; display: none; background: white; margin: 0;">
+                                <span class="toggle-icon">▶</span>
                             </div>
                         </div>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="dueDate">Due Date</label>
-                        <input type="date" id="dueDate" required>
+                        
+                        <!-- Hidden radio inputs for form submission -->
+                        <input type="radio" name="batchMode" value="single-batch" id="batchModeSingle" style="display: none;">
+                        <input type="radio" name="batchMode" value="auto-split" id="batchModeAuto" checked style="display: none;">
+                        <input type="radio" name="batchMode" value="custom-batch-size" id="batchModeCustom" style="display: none;">
                     </div>
                 </div>
 
@@ -773,8 +1533,12 @@
                         </div>
 
                         <div class="form-group">
-                            <label for="orderStartDateTime">Start Date-Time</label>
-                            <input type="datetime-local" id="orderStartDateTime">
+                            <label for="orderStartDateTime">Order Start Date & Time (Per Order Rule)</label>
+                            <input type="datetime-local" id="orderStartDateTime" placeholder="mm/dd/yyyy, --:-- --">
+                            <small>📅 Please select the Start Date & Time for this order.<br>
+                            ⚠️ This sets the earliest allowed start time for setup/processing of this order. The scheduler must not schedule this order before the chosen time — even if machines are free.<br>
+                            <strong>Behavior rule:</strong> If Order Start Date-Time is defined → compare with Global Start Date-Time → actual order start = max(GlobalStart, OrderStart). If not defined → order is eligible immediately from Global Start Date-Time.<br>
+                            <strong>Example:</strong> Global Start Date-Time = 2025-09-10 03:00, Order Start Date-Time = 2025-09-10 06:00 → This order must wait until 06:00 to begin setup, even though global clock starts at 03:00.</small>
                         </div>
 
                         <div class="form-group" id="orderHolidayGroup">
@@ -795,8 +1559,10 @@
                     </div>
                 </div>
 
-                <div style="display:flex; gap:10px; align-items:center; margin-top:10px;">
+                <div class="form-actions">
                     <button id="orderSubmitBtn" type="submit" class="btn btn-primary">➕ Add Order</button>
+                    <button type="button" class="btn btn-secondary" onclick="clearForm()">🗑️ Clear Form</button>
+                    <button id="editOrderBtn" type="button" class="btn btn-success" style="display:none;" onclick="updateOrder()">💾 Update Order</button>
                     <button id="cancelEditBtn" type="button" class="btn btn-secondary" style="display:none;" onclick="cancelEdit()">✖️ Cancel</button>
                 </div>
             </form>
@@ -805,68 +1571,151 @@
         <!-- Advanced Settings Tab -->
         <div class="card tab-content" id="advancedTab" style="display: none;">
             <h2>⚙️ Global Advanced Settings</h2>
-            <div class="form-grid">
+            <div class="advanced-grid-3">
                 <div class="form-group">
-                    <label for="startDateTime">Start Date & Time</label>
-                    <input type="datetime-local" id="startDateTime">
+                    <label for="startDateTime">Global Start Date & Time (Master Clock)</label>
+                    <input type="datetime-local" id="startDateTime" placeholder="mm/dd/yyyy, --:-- --">
+                </div>
+
+                <!-- Global Setup Window (People-Dependent) -->
+                <div class="form-group">
+                    <label for="setupAvailabilityWindow">Global Setup Window (People-Dependent)</label>
+                    <input type="text" id="setupAvailabilityWindow" value="06:00-22:00" placeholder="06:00-22:00">
+                    <small>Format: HH:MM-HH:MM. Auto-filled from Shift 1 and Shift 2 below (earliest start to latest end). You can still override manually.</small>
+                    <div class="shifts-container">
+                        <div class="form-group">
+                            <label for="shift1">Shift 1 (Controls Global Setup Window)</label>
+                            <input type="text" id="shift1" value="06:00-14:00" placeholder="06:00-14:00">
+                </div>
+                <div class="form-group">
+                            <label for="shift2">Shift 2 (Controls Global Setup Window)</label>
+                            <input type="text" id="shift2" value="14:00-22:00" placeholder="14:00-22:00">
+                        </div>
+                    </div>
                 </div>
 
                 <div class="form-group">
-                    <label for="setupAvailabilityWindow">Setup Window (People-Dependent)</label>
-                    <input type="text" id="setupAvailabilityWindow" value="06:00-22:00" required>
-                    <small>Setup operations only during these hours with shift operators</small>
+                    <label>Production Window (Machine-Dependent)</label>
+                    <div class="shifts-container">
+                        <div class="form-group">
+                            <label for="prodShift1">Shift 1 (Morning)</label>
+                            <input type="text" id="prodShift1" value="06:00-14:00" placeholder="06:00-14:00">
+                </div>
+                <div class="form-group">
+                            <label for="prodShift2">Shift 2 (Afternoon)</label>
+                            <input type="text" id="prodShift2" value="14:00-22:00" placeholder="14:00-22:00">
+                </div>
+                <div class="form-group">
+                            <label for="prodShift3">Shift 3 (Night)</label>
+                            <input type="text" id="prodShift3" value="22:00-06:00" placeholder="22:00-06:00">
+                </div>
+                    </div>
+                </div>
+            </div><!-- /.advanced-grid-3 -->
+
+            <div class="advanced-grid-2">
+                <div class="form-group">
+                    <label for="holidays">Holiday Calendar (Global Pauses)</label>
+                    <div class="holiday-input-section">
+                        <div class="holiday-datetime-inputs">
+                            <div class="datetime-pair">
+                                <label for="holidayStart">Start DateTime:</label>
+                                <input type="datetime-local" id="holidayStart" placeholder="Start date and time">
+                            </div>
+                            <div class="datetime-pair">
+                                <label for="holidayEnd">End DateTime:</label>
+                                <input type="datetime-local" id="holidayEnd" placeholder="End date and time">
+                            </div>
+                            <div class="datetime-pair">
+                                <label for="holidayReason">Reason (Optional):</label>
+                                <input type="text" id="holidayReason" placeholder="e.g., National Holiday, Maintenance">
+                            </div>
+                        </div>
+                        <button type="button" class="btn btn-primary" onclick="addHoliday()">➕ Add Holiday</button>
+                </div>
+
+                    <!-- Holiday List Display -->
+                    <div class="holiday-list-section">
+                        <h4>📅 Saved Holidays</h4>
+                        <div class="holiday-list-container" id="holidayListContainer">
+                            <table class="holiday-table" id="holidayTable">
+                                <thead>
+                                    <tr>
+                                        <th>Start DateTime</th>
+                                        <th>End DateTime</th>
+                                        <th>Type</th>
+                                        <th>Reason</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="holidayTableBody">
+                                    <tr>
+                                        <td colspan="5" style="text-align: center; color: #888;">No holidays added yet</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="form-group">
-                    <label for="productionWindow">Production Window (Machine-Dependent)</label>
-                    <select id="productionWindow">
-                        <option value="24x7">24×7 Continuous</option>
-                        <option value="2-shift">2 Shifts (06:00-22:00)</option>
-                        <option value="3-shift">3 Shifts (24×7 with boundaries)</option>
-                        <option value="custom">Custom Hours</option>
-                    </select>
-                    <small>Production runs respect shift boundaries</small>
-                </div>
-
-                <div class="form-group">
-                    <label for="breakdownMachines">Breakdown Machines</label>
-                    <select id="breakdownMachines" multiple>
-                        <option value="VMC 1">VMC 1</option>
-                        <option value="VMC 2">VMC 2</option>
-                        <option value="VMC 3">VMC 3</option>
-                        <option value="VMC 4">VMC 4</option>
-                        <option value="VMC 5">VMC 5</option>
-                        <option value="VMC 6">VMC 6</option>
-                        <option value="VMC 7">VMC 7</option>
-                    </select>
-                </div>
-
-                <div class="form-group">
-                    <label for="breakdownDateTime">Breakdown Date-Time Range</label>
-                    <input type="text" id="breakdownDateTime" placeholder="28/08/2025 10:00-14:00">
-                </div>
-
-                <div class="form-group">
-                    <label for="holidays">Holidays</label>
-                    <textarea id="holidays" placeholder="30/08/2025,31/08/2025"></textarea>
-                </div>
-
-                <div class="form-group">
-                    <label for="shift1">Shift 1 (Morning)</label>
-                    <input type="text" id="shift1" value="06:00-14:00" placeholder="06:00-14:00">
-                    <small>Operators: A, B</small>
-                </div>
-
-                <div class="form-group">
-                    <label for="shift2">Shift 2 (Afternoon)</label>
-                    <input type="text" id="shift2" value="14:00-22:00" placeholder="14:00-22:00">
-                    <small>Operators: C, D</small>
-                </div>
-
-                <div class="form-group">
-                    <label for="shift3">Shift 3 (Night)</label>
-                    <input type="text" id="shift3" value="22:00-06:00" placeholder="22:00-06:00">
-                    <small>Optional night shift</small>
+                    <label for="breakdownMachines">Machine Breakdowns (Downtime Control)</label>
+                    <div class="breakdown-input-section">
+                        <div class="breakdown-machine-selection">
+                            <label for="breakdownMachineSelect">Select Machines:</label>
+                            <div class="machine-checkbox-group" id="machineCheckboxGroup">
+                                <label class="checkbox-item"><input type="checkbox" value="VMC 1"> VMC 1</label>
+                                <label class="checkbox-item"><input type="checkbox" value="VMC 2"> VMC 2</label>
+                                <label class="checkbox-item"><input type="checkbox" value="VMC 3"> VMC 3</label>
+                                <label class="checkbox-item"><input type="checkbox" value="VMC 4"> VMC 4</label>
+                                <label class="checkbox-item"><input type="checkbox" value="VMC 5"> VMC 5</label>
+                                <label class="checkbox-item"><input type="checkbox" value="VMC 6"> VMC 6</label>
+                                <label class="checkbox-item"><input type="checkbox" value="VMC 7"> VMC 7</label>
+                                <label class="checkbox-item"><input type="checkbox" value="VMC 8"> VMC 8</label>
+                                <label class="checkbox-item"><input type="checkbox" value="VMC 9"> VMC 9</label>
+                                <label class="checkbox-item"><input type="checkbox" value="VMC 10"> VMC 10</label>
+                            </div>
+                        </div>
+                        
+                        <div class="breakdown-datetime-inputs">
+                            <div class="datetime-pair">
+                                <label for="breakdownStart">Start DateTime:</label>
+                                <input type="datetime-local" id="breakdownStart" placeholder="Start date and time" required>
+                            </div>
+                            <div class="datetime-pair">
+                                <label for="breakdownEnd">End DateTime:</label>
+                                <input type="datetime-local" id="breakdownEnd" placeholder="End date and time" required>
+                            </div>
+                            <div class="datetime-pair">
+                                <label for="breakdownReason">Reason (Optional):</label>
+                                <input type="text" id="breakdownReason" placeholder="e.g., Power Maintenance, Coolant Pump Failure">
+                            </div>
+                        </div>
+                        <button type="button" class="btn btn-primary" onclick="addBreakdown()">🔧 Add Breakdown</button>
+                    </div>
+                    
+                    <!-- Breakdown List Display -->
+                    <div class="breakdown-list-section">
+                        <h4>🔧 Saved Machine Breakdowns</h4>
+                        <div class="breakdown-list-container">
+                            <table class="breakdown-table" id="breakdownTable">
+                                <thead>
+                                    <tr>
+                                        <th>Machines</th>
+                                        <th>Start DateTime</th>
+                                        <th>End DateTime</th>
+                                        <th>Reason</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="breakdownTableBody">
+                                    <tr>
+                                        <td colspan="5" style="text-align: center; color: #888;">No breakdowns added yet</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -875,7 +1724,14 @@
 
         <!-- Saved Orders Table -->
         <div class="card">
+            <div class="saved-orders-header">
             <h2>📋 Saved Orders</h2>
+                <div>
+                    <button id="clearAllOrdersBtn" class="btn btn-danger" onclick="clearAllSavedOrders()">
+                        All Clear ❌
+                    </button>
+                </div>
+            </div>
             <div class="table-container">
                 <table id="ordersTable">
                     <thead>
@@ -885,6 +1741,7 @@
                             <th>Order Quantity</th>
                             <th>Priority</th>
                             <th>Due Date</th>
+                            <th>Batch Mode</th>
                             <th>Breakdown Machine</th>
                             <th>Breakdown DateTime</th>
                             <th>Start DateTime</th>
@@ -895,7 +1752,7 @@
                     </thead>
                     <tbody id="ordersTableBody">
                         <tr>
-                            <td colspan="11" style="text-align: center; color: #888;">No orders added yet</td>
+                            <td colspan="12" class="empty-state">No orders added yet</td>
                         </tr>
                     </tbody>
                 </table>
@@ -925,6 +1782,7 @@
                             <th>Run End</th>
                             <th>Timing</th>
                             <th>Due Date</th>
+                            <th>Status</th>
                         </tr>
                     </thead>
                     <tbody id="resultsTableBody"></tbody>
@@ -943,8 +1801,14 @@
             <button class="btn btn-success" onclick="runSchedule()">
                 ▶️ Run Schedule
             </button>
+            <button class="btn btn-info" onclick="importFromExcel()" id="importBtn">
+                ⬆️ Import Excel
+            </button>
             <button class="btn btn-secondary" onclick="exportToExcel()" id="exportBtn" disabled>
                 ⬇️ Export Excel
+            </button>
+            <button class="btn btn-warning" onclick="clearSession()" id="clearBtn">
+                🔄 Clear
             </button>
         </div>
     </div>
@@ -1066,7 +1930,8 @@
             setupAvailabilityWindow: '06:00-22:00',
             breakdownMachines: [],
             breakdownDateTime: '',
-            holidays: '',
+            holidays: [],
+            breakdowns: [],
             shift1: '06:00-14:00',
             shift2: '14:00-22:00',
             shift3: '22:00-06:00'
@@ -1083,13 +1948,77 @@
         }
 
         // Initialize the application
-        document.addEventListener('DOMContentLoaded', function() {
-            setupPartNumberSearch();
+        document.addEventListener('DOMContentLoaded', async function() {
+            await initializeForUserRole();
             setupFormSubmission();
+            setupBatchModeToggle();
+            setupPriorityToggle();
+            initializeAdvancedSettings();
             setDefaultDueDate();
-            setupDueDateField(); // Setup Due Date field with auto-default functionality
+            setupDueDateField();
+            updateUserRoleIndicator();
             loadAdvancedSettings(); // Load saved advanced settings
         });
+
+        // Initialize based on user role
+        async function initializeForUserRole() {
+            try {
+                const userRole = await getCurrentUserRole();
+                
+                if (userRole === 'Test User') {
+                    // Clear all database data for test users
+                    window.OP_MASTER = [];
+                    testUserData = null;
+                    isUsingTestData = false;
+                    
+                    // Setup empty part number search
+                    setupEmptyPartNumberSearch();
+                } else {
+                    // Normal initialization for Admin/Operator
+                    setupPartNumberSearch();
+                }
+            } catch (error) {
+                console.error('Error initializing for user role:', error);
+                // Fallback to normal initialization
+                setupPartNumberSearch();
+            }
+        }
+
+        // Setup empty part number search for Test Users
+        function setupEmptyPartNumberSearch() {
+            const partNumberInput = document.getElementById('partNumber');
+            const partNumberResults = document.getElementById('partNumberResults');
+            
+            if (partNumberInput) {
+                partNumberInput.placeholder = 'Import Excel file first to see part numbers';
+                partNumberInput.disabled = true;
+            }
+            
+            if (partNumberResults) {
+                partNumberResults.innerHTML = '<div style="padding: 10px; color: #888; font-style: italic;">No part numbers available. Please import Excel file first.</div>';
+                partNumberResults.style.display = 'block';
+            }
+            
+            // Override getAvailablePartNumbers to return empty array
+            window.getAvailablePartNumbers = function() {
+                return [];
+            };
+        }
+
+        function initializeAdvancedSettings() {
+            // Set default values
+            const now = new Date();
+            now.setHours(6, 0, 0, 0);
+            document.getElementById('startDateTime').value = now.toISOString().slice(0, 16);
+            
+            // Add event listeners for auto-update setup window
+            document.getElementById('shift1').addEventListener('input', updateSetupWindow);
+            document.getElementById('shift2').addEventListener('input', updateSetupWindow);
+            
+            // Initialize tables
+            updateHolidayTable();
+            updateBreakdownTable();
+        }
 
         function setDefaultDueDate() {
             const oneWeekFromNow = new Date();
@@ -1179,8 +2108,14 @@
             const operationSeqDisplay = document.getElementById('operationSeqDisplay');
             const operationSeqBtn = document.getElementById('operationSeqBtn');
             
+            // Use test data if available, otherwise use database data
+            const dataSource = isUsingTestData ? testUserData : window.OP_MASTER;
+            
             // Get all operations for this part number
-            availableOperations = window.OP_MASTER.filter(op => op.PartNumber === partNumber);
+            availableOperations = dataSource.filter(op => {
+                const partNum = op.PartNumber || op.partnumber;
+                return partNum === partNumber;
+            });
             
             if (availableOperations.length === 0) {
                 operationSeqDisplay.placeholder = 'No operations found';
@@ -1189,7 +2124,7 @@
             }
             
             // Sort operations by sequence
-            availableOperations.sort((a, b) => a.OperationSeq - b.OperationSeq);
+            availableOperations.sort((a, b) => (a.OperationSeq || a.operationseq) - (b.OperationSeq || b.operationseq));
             
             // Enable the button and update placeholder
             operationSeqDisplay.placeholder = 'Click to select operations';
@@ -1229,12 +2164,14 @@
             
             availableOperations.forEach(op => {
                 const currentValue = document.getElementById('operationSeq').value;
-                const isChecked = currentValue.includes(op.OperationSeq.toString());
+                const opSeq = op.OperationSeq || op.operationseq;
+                const opName = op.OperationName || op.operationname;
+                const isChecked = currentValue.includes(opSeq.toString());
                 
                 dropdownHTML += `
-                    <div class="operation-dropdown-item" onclick="toggleDropdownItem(this, '${op.OperationSeq}')">
-                        <input type="checkbox" id="dropdown_op_${op.OperationSeq}" value="${op.OperationSeq}" ${isChecked ? 'checked' : ''}>
-                        <label>Op ${op.OperationSeq}: ${op.OperationName}</label>
+                    <div class="operation-dropdown-item" onclick="toggleDropdownItem(this, '${opSeq}')">
+                        <input type="checkbox" id="dropdown_op_${opSeq}" value="${opSeq}" ${isChecked ? 'checked' : ''}>
+                        <label>Op ${opSeq}: ${opName}</label>
                     </div>
                 `;
             });
@@ -1359,6 +2296,162 @@
             }
         }
 
+        // Global variables for holidays and breakdowns
+        let holidays = [];
+        let breakdowns = [];
+        
+        // Make variables globally accessible for ExcelExporter
+        window.holidays = holidays;
+        window.breakdowns = breakdowns;
+        window.advancedSettings = advancedSettings;
+
+        function addHoliday() {
+            const start = document.getElementById('holidayStart').value;
+            const end = document.getElementById('holidayEnd').value;
+            const reason = document.getElementById('holidayReason').value;
+
+            if (!start || !end) {
+                alert('Please select both start and end date/time for the holiday.');
+                return;
+            }
+
+            if (new Date(start) >= new Date(end)) {
+                alert('End date/time must be after start date/time.');
+                return;
+            }
+
+            const holiday = {
+                id: Date.now(),
+                start: start,
+                end: end,
+                reason: reason || 'Holiday',
+                type: 'Holiday'
+            };
+
+            holidays.push(holiday);
+            window.holidays = holidays; // Update global reference
+            updateHolidayTable();
+            clearHolidayInputs();
+        }
+
+        function addBreakdown() {
+            const start = document.getElementById('breakdownStart').value;
+            const end = document.getElementById('breakdownEnd').value;
+            const reason = document.getElementById('breakdownReason').value;
+            const selectedMachines = Array.from(document.querySelectorAll('#machineCheckboxGroup input:checked')).map(cb => cb.value);
+
+            if (!start || !end) {
+                alert('Please select both start and end date/time for the breakdown.');
+                return;
+            }
+
+            if (selectedMachines.length === 0) {
+                alert('Please select at least one machine for the breakdown.');
+                return;
+            }
+
+            if (new Date(start) >= new Date(end)) {
+                alert('End date/time must be after start date/time.');
+                return;
+            }
+
+            const breakdown = {
+                id: Date.now(),
+                machines: selectedMachines,
+                start: start,
+                end: end,
+                reason: reason || 'Maintenance'
+            };
+
+            breakdowns.push(breakdown);
+            window.breakdowns = breakdowns; // Update global reference
+            updateBreakdownTable();
+            clearBreakdownInputs();
+        }
+
+        function updateHolidayTable() {
+            const tbody = document.getElementById('holidayTableBody');
+            
+            if (holidays.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #888;">No holidays added yet</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = holidays.map(holiday => `
+                <tr>
+                    <td>${holiday.start}</td>
+                    <td>${holiday.end}</td>
+                    <td>${holiday.type}</td>
+                    <td>${holiday.reason}</td>
+                    <td>
+                        <button class="btn btn-danger" onclick="removeHoliday(${holiday.id})">Delete</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function updateBreakdownTable() {
+            const tbody = document.getElementById('breakdownTableBody');
+            
+            if (breakdowns.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #888;">No breakdowns added yet</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = breakdowns.map(breakdown => `
+                <tr>
+                    <td>${breakdown.machines.join(', ')}</td>
+                    <td>${breakdown.start}</td>
+                    <td>${breakdown.end}</td>
+                    <td>${breakdown.reason}</td>
+                    <td>
+                        <button class="btn btn-danger" onclick="removeBreakdown(${breakdown.id})">Delete</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function removeHoliday(id) {
+            if (confirm('Are you sure you want to remove this holiday?')) {
+                holidays = holidays.filter(h => h.id !== id);
+                window.holidays = holidays; // Update global reference
+                updateHolidayTable();
+            }
+        }
+
+        function removeBreakdown(id) {
+            if (confirm('Are you sure you want to remove this breakdown?')) {
+                breakdowns = breakdowns.filter(b => b.id !== id);
+                window.breakdowns = breakdowns; // Update global reference
+                updateBreakdownTable();
+            }
+        }
+
+        function clearHolidayInputs() {
+            document.getElementById('holidayStart').value = '';
+            document.getElementById('holidayEnd').value = '';
+            document.getElementById('holidayReason').value = '';
+        }
+
+        function clearBreakdownInputs() {
+            document.getElementById('breakdownStart').value = '';
+            document.getElementById('breakdownEnd').value = '';
+            document.getElementById('breakdownReason').value = '';
+            document.querySelectorAll('#machineCheckboxGroup input:checked').forEach(cb => cb.checked = false);
+        }
+
+        // Auto-update setup window when shifts change
+        function updateSetupWindow() {
+            const shift1 = document.getElementById('shift1').value;
+            const shift2 = document.getElementById('shift2').value;
+            
+            if (shift1 && shift2) {
+                const start1 = shift1.split('-')[0];
+                const end2 = shift2.split('-')[1];
+                document.getElementById('setupAvailabilityWindow').value = `${start1}-${end2}`;
+            }
+        }
+
         function saveAdvancedSettings() {
             // Handle datetime-local input properly
             const startDateTimeValue = document.getElementById('startDateTime').value;
@@ -1377,13 +2470,17 @@
             advancedSettings = {
                 startDateTime: processedStartDateTime,
                 setupAvailabilityWindow: document.getElementById('setupAvailabilityWindow').value,
-                breakdownMachines: Array.from(document.getElementById('breakdownMachines').selectedOptions).map(opt => opt.value),
-                breakdownDateTime: document.getElementById('breakdownDateTime').value,
-                holidays: document.getElementById('holidays').value,
                 shift1: document.getElementById('shift1').value,
                 shift2: document.getElementById('shift2').value,
-                shift3: document.getElementById('shift3').value
+                prodShift1: document.getElementById('prodShift1').value,
+                prodShift2: document.getElementById('prodShift2').value,
+                prodShift3: document.getElementById('prodShift3').value,
+                holidays: holidays,
+                breakdowns: breakdowns
             };
+            
+            // Update global reference
+            window.advancedSettings = advancedSettings;
             
             console.log(`[UI-DEBUG] Advanced settings saved:`, advancedSettings);
             showAlert('Advanced settings saved successfully!', 'success');
@@ -1402,24 +2499,219 @@
             }
             
             document.getElementById('setupAvailabilityWindow').value = advancedSettings.setupAvailabilityWindow || '06:00-22:00';
-            document.getElementById('breakdownDateTime').value = advancedSettings.breakdownDateTime || '';
-            document.getElementById('holidays').value = advancedSettings.holidays || '';
             document.getElementById('shift1').value = advancedSettings.shift1 || '06:00-14:00';
             document.getElementById('shift2').value = advancedSettings.shift2 || '14:00-22:00';
-            document.getElementById('shift3').value = advancedSettings.shift3 || '22:00-06:00';
+            document.getElementById('prodShift1').value = advancedSettings.prodShift1 || '06:00-14:00';
+            document.getElementById('prodShift2').value = advancedSettings.prodShift2 || '14:00-22:00';
+            document.getElementById('prodShift3').value = advancedSettings.prodShift3 || '22:00-06:00';
             
-            // Handle breakdown machines selection
-            if (advancedSettings.breakdownMachines && advancedSettings.breakdownMachines.length > 0) {
-                const breakdownSelect = document.getElementById('breakdownMachines');
-                Array.from(breakdownSelect.options).forEach(option => {
-                    option.selected = advancedSettings.breakdownMachines.includes(option.value);
-                });
+            // Load holidays and breakdowns
+            if (advancedSettings.holidays) {
+                holidays = advancedSettings.holidays;
+                window.holidays = holidays; // Update global reference
+                updateHolidayTable();
+            }
+            
+            if (advancedSettings.breakdowns) {
+                breakdowns = advancedSettings.breakdowns;
+                window.breakdowns = breakdowns; // Update global reference
+                updateBreakdownTable();
             }
         }
 
         function toggleAdvanced() {
             const options = document.getElementById('advancedOptions');
             options.classList.toggle('show');
+        }
+
+        // Batch mode toggle functionality
+        function setupBatchModeToggle() {
+            console.log('Setting up batch mode toggle...');
+            
+            // Wait for DOM to be ready
+            setTimeout(() => {
+                const toggleContainer = document.querySelector('.three-way-toggle:not(#priorityToggle)');
+                const toggleOptions = toggleContainer ? toggleContainer.querySelectorAll('.toggle-option') : [];
+                console.log('Found batch mode toggle options:', toggleOptions.length);
+                
+                // Define the order of modes
+                const modeOrder = ['single-batch', 'auto-split', 'custom-batch-size'];
+                let currentModeIndex = 1; // Start with auto-split (index 1)
+                
+                // Set initial active state
+                toggleOptions.forEach((option, index) => {
+                    if (option.dataset.mode === modeOrder[currentModeIndex]) {
+                        option.classList.add('active');
+                    } else {
+                        option.classList.remove('active');
+                    }
+                });
+                
+                // Add click event to each individual option
+                toggleOptions.forEach((option, index) => {
+                    option.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        
+                        const clickedMode = this.dataset.mode;
+                        console.log('Option clicked:', clickedMode);
+                        
+                        // Only change if clicking a different option
+                        if (clickedMode !== modeOrder[currentModeIndex]) {
+                            // Remove active class from all options
+                            toggleOptions.forEach(opt => {
+                                opt.classList.remove('active');
+                            });
+                            
+                            // Add active class to clicked option
+                            this.classList.add('active');
+                            
+                            // Update current mode index
+                            currentModeIndex = modeOrder.indexOf(clickedMode);
+                            
+                            // Update hidden radio inputs
+                            document.querySelectorAll('input[name="batchMode"]').forEach(input => {
+                                input.checked = input.value === clickedMode;
+                            });
+                            
+                            // Handle custom batch size input
+                            const customInput = document.getElementById('customBatchSize');
+                            const customText = document.getElementById('customSizeText');
+                            
+                            if (clickedMode === 'custom-batch-size') {
+                                if (customInput) {
+                                    customInput.style.display = 'inline-block';
+                                    setTimeout(() => customInput.focus(), 100);
+                                }
+                                if (customText) {
+                                    customText.style.display = 'none';
+                                }
+                            } else {
+                                if (customInput) {
+                                    customInput.style.display = 'none';
+                                }
+                                if (customText) {
+                                    customText.style.display = 'inline';
+                                }
+                            }
+                            
+                            console.log('Batch mode set to:', clickedMode);
+                        } else {
+                            console.log('Same option clicked, no change needed');
+                        }
+                    });
+                    
+                    // Add hover effects
+                    option.addEventListener('mouseenter', function() {
+                        if (!this.classList.contains('active')) {
+                            this.style.backgroundColor = '#f8f9fa'; // Light gray hover
+                        }
+                    });
+                    
+                    option.addEventListener('mouseleave', function() {
+                        if (!this.classList.contains('active')) {
+                            this.style.backgroundColor = ''; // Reset to CSS default (white)
+                        }
+                    });
+                });
+                
+                // Ensure the toggle is visible and properly styled
+                if (toggleContainer) {
+                    toggleContainer.style.display = 'flex';
+                    toggleContainer.style.visibility = 'visible';
+                    toggleContainer.style.opacity = '1';
+                    toggleContainer.style.height = '50px';
+                    toggleContainer.style.maxWidth = '600px';
+                    console.log('Toggle container visibility and styling set');
+                }
+                
+                console.log('Initial active mode:', modeOrder[currentModeIndex]);
+                
+            }, 100);
+        }
+
+        function setupPriorityToggle() {
+            console.log('Setting up priority toggle...');
+            
+            // Wait for DOM to be ready
+            setTimeout(() => {
+                const priorityToggleContainer = document.getElementById('priorityToggle');
+                const priorityToggleOptions = priorityToggleContainer ? priorityToggleContainer.querySelectorAll('.toggle-option') : [];
+                console.log('Found priority toggle options:', priorityToggleOptions.length);
+                
+                // Define the order of priority modes
+                const priorityModeOrder = ['urgent', 'high', 'normal', 'low'];
+                let currentPriorityIndex = 2; // Start with normal (index 2)
+                
+                // Set initial active state
+                priorityToggleOptions.forEach((option, index) => {
+                    if (option.dataset.mode === priorityModeOrder[currentPriorityIndex]) {
+                        option.classList.add('active');
+                    } else {
+                        option.classList.remove('active');
+                    }
+                });
+                
+                // Add click event to each individual option
+                priorityToggleOptions.forEach((option, index) => {
+                    option.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        
+                        const clickedMode = this.dataset.mode;
+                        console.log('Priority option clicked:', clickedMode);
+                        
+                        // Only change if clicking a different option
+                        if (clickedMode !== priorityModeOrder[currentPriorityIndex]) {
+                            // Remove active class from all options
+                            priorityToggleOptions.forEach(opt => {
+                                opt.classList.remove('active');
+                            });
+                            
+                            // Add active class to clicked option
+                            this.classList.add('active');
+                            
+                            // Update current priority index
+                            currentPriorityIndex = priorityModeOrder.indexOf(clickedMode);
+                            
+                            // Update hidden radio inputs
+                            document.querySelectorAll('input[name="priority"]').forEach(input => {
+                                input.checked = input.value === clickedMode.charAt(0).toUpperCase() + clickedMode.slice(1);
+                            });
+                            
+                            console.log('Priority mode set to:', clickedMode);
+                        } else {
+                            console.log('Same priority option clicked, no change needed');
+                        }
+                    });
+                    
+                    // Add hover effects
+                    option.addEventListener('mouseenter', function() {
+                        if (!this.classList.contains('active')) {
+                            this.style.backgroundColor = '#f8f9fa'; // Light gray hover
+                        }
+                    });
+                    
+                    option.addEventListener('mouseleave', function() {
+                        if (!this.classList.contains('active')) {
+                            this.style.backgroundColor = ''; // Reset to CSS default (white)
+                        }
+                    });
+                });
+                
+                // Ensure the toggle is visible and properly styled
+                if (priorityToggleContainer) {
+                    priorityToggleContainer.style.display = 'flex';
+                    priorityToggleContainer.style.visibility = 'visible';
+                    priorityToggleContainer.style.opacity = '1';
+                    priorityToggleContainer.style.height = '50px';
+                    priorityToggleContainer.style.maxWidth = '600px';
+                    console.log('Priority toggle container visibility and styling set');
+                }
+                
+                console.log('Initial active priority:', priorityModeOrder[currentPriorityIndex]);
+                
+            }, 100);
         }
 
         function setupFormSubmission() {
@@ -1567,6 +2859,10 @@
             
             console.log('Order submission - Final filtered operations:', filteredOperations.map(op => `Op ${op.OperationSeq}: ${op.OperationName}`));
 
+            // Capture batch mode
+            const batchModeElement = document.querySelector('input[name="batchMode"]:checked');
+            const batchMode = batchModeElement ? batchModeElement.value : 'auto-split';
+
             // Capture optional overrides
             const order = {
                 id: editingOrderId !== null ? editingOrderId : Date.now(),
@@ -1576,6 +2872,7 @@
                 quantity: quantity,
                 priority: priorityElement.value,
                 dueDate: dueDate,
+                batchMode: batchMode,
                 // Optional overrides (null if blank, will use global settings)
                 breakdownMachine: document.getElementById('orderBreakdownMachine').value || null,
                 breakdownDateTime: buildBreakdownRangeString(),
@@ -1601,28 +2898,37 @@
         }
 
         function getFilteredOperations(partNumber, operationSeq) {
-            // Get all operations for this part number from master routing
-            const allOperations = window.OP_MASTER.filter(op => op.PartNumber === partNumber);
+            // Use test data if available, otherwise use database data
+            const dataSource = isUsingTestData ? testUserData : window.OP_MASTER;
+            
+            // Get all operations for this part number from data source
+            const allOperations = dataSource.filter(op => {
+                const partNum = op.PartNumber || op.partnumber;
+                return partNum === partNumber;
+            });
             
             console.log(`Found ${allOperations.length} total operations for ${partNumber}:`, 
-                allOperations.map(op => `Op ${op.OperationSeq}: ${op.OperationName}`));
+                allOperations.map(op => `Op ${op.OperationSeq || op.operationseq}: ${op.OperationName || op.operationname}`));
             
             if (!operationSeq || operationSeq === '') {
                 // "All operations" selected - include everything
                 console.log('Selected: ALL operations');
-                return allOperations.sort((a, b) => a.OperationSeq - b.OperationSeq);
+                return allOperations.sort((a, b) => (a.OperationSeq || a.operationseq) - (b.OperationSeq || b.operationseq));
             } else {
                 // Specific operations selected (e.g., "1,2" or "3,4")
                 const selectedSeqs = operationSeq.split(',').map(seq => parseInt(seq.trim()));
                 console.log('Selected operation sequences:', selectedSeqs);
                 
-                const filteredOps = allOperations.filter(op => selectedSeqs.includes(op.OperationSeq));
+                const filteredOps = allOperations.filter(op => {
+                    const opSeq = op.OperationSeq || op.operationseq;
+                    return selectedSeqs.includes(opSeq);
+                });
                 console.log(`Filtered to ${filteredOps.length} operations:`, 
-                    filteredOps.map(op => `Op ${op.OperationSeq}: ${op.OperationName}`));
+                    filteredOps.map(op => `Op ${op.OperationSeq || op.operationseq}: ${op.OperationName || op.operationname}`));
                 
                 // CRITICAL: Only return operations that match the selected sequences
                 // This prevents any excluded operations from appearing in results
-                return filteredOps.sort((a, b) => a.OperationSeq - b.OperationSeq);
+                return filteredOps.sort((a, b) => (a.OperationSeq || a.operationseq) - (b.OperationSeq || b.operationseq));
             }
         }
 
@@ -1639,6 +2945,30 @@
                 icon.textContent = '▶';
                 icon.style.transform = 'rotate(0deg)';
             }
+        }
+
+        function clearForm() {
+            document.getElementById('orderForm').reset();
+            document.getElementById('partSuggestions').style.display = 'none';
+            document.getElementById('operationDropdown').style.display = 'none';
+            document.getElementById('operationSeqBtn').disabled = true;
+            document.getElementById('operationSeqDisplay').disabled = true;
+            document.getElementById('operationSeqDisplay').placeholder = 'Select a part number first';
+            document.getElementById('optionalOverridesContent').style.display = 'none';
+            document.getElementById('overrideToggleIcon').textContent = '▶';
+            
+            // Reset batch mode toggle to default
+            document.querySelectorAll('.toggle-option').forEach(opt => opt.classList.remove('active'));
+            document.querySelector('.toggle-option[data-mode="auto-split"]').classList.add('active');
+            document.querySelectorAll('input[name="batchMode"]').forEach(input => {
+                input.checked = input.value === 'auto-split';
+            });
+            
+            // Hide custom batch size input
+            const customInput = document.getElementById('customBatchSize');
+            const customText = document.getElementById('customSizeText');
+            customInput.style.display = 'none';
+            customText.style.display = 'inline';
         }
 
         function resetForm() {
@@ -1662,7 +2992,7 @@
             const tbody = document.getElementById('ordersTableBody');
             
             if (savedOrders.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="11" style="text-align: center; color: #888;">No orders added yet</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="12" class="empty-state">No orders added yet</td></tr>';
                 return;
             }
 
@@ -1676,21 +3006,39 @@
                     operationDisplay = order.operationSeq;
                 }
                 
+                // Determine batch mode display
+                let batchModeDisplay = 'Auto';
+                let batchModeClass = 'auto-split';
+                if (order.batchMode) {
+                    if (order.batchMode === 'single-batch') {
+                        batchModeDisplay = 'Single';
+                        batchModeClass = 'single-batch';
+                    } else if (order.batchMode === 'custom-batch-size') {
+                        batchModeDisplay = 'Custom';
+                        batchModeClass = 'custom';
+                    }
+                }
+                
                 return `
                 <tr>
                     <td>${order.partNumber}</td>
                     <td>${operationDisplay}</td>
                     <td>${order.quantity}</td>
-                    <td><span class="priority-${order.priority.toLowerCase()}">${order.priority}</span></td>
+                    <td><span class="priority-badge priority-${order.priority.toLowerCase()}">${order.priority}</span></td>
                     <td>${new Date(order.dueDate).toLocaleDateString()}</td>
-                    <td>${order.breakdownMachine || '<em>Global</em>'}</td>
-                    <td>${order.breakdownDateTime || '<em>Global</em>'}</td>
-                    <td>${order.startDateTime ? new Date(order.startDateTime).toLocaleString() : '<em>Global</em>'}</td>
-                    <td>${order.holidayRange || '<em>Global</em>'}</td>
-                    <td>${order.setupWindow || '<em>Global</em>'}</td>
+                    <td><span class="batch-mode-badge batch-mode-${batchModeClass}">${batchModeDisplay}</span></td>
+                    <td>${order.breakdownMachine || 'None'}</td>
+                    <td>${order.breakdownDateTime || 'None'}</td>
+                    <td>${order.startDateTime ? new Date(order.startDateTime).toLocaleString() : 'Use Global'}</td>
+                    <td>${order.holidayRange || 'None'}</td>
+                    <td>${order.setupWindow || '06:00-22:00'}</td>
                     <td>
-                        <button class="btn btn-secondary" style="margin-right:6px;" onclick="editOrder(${order.id})">Edit</button>
-                        <button class="btn btn-danger" onclick="deleteOrder(${order.id})">Delete</button>
+                        <div class="action-buttons">
+                            <button class="btn btn-primary" onclick="editOrder(${order.id})" title="Edit Order">✏️</button>
+                            <button class="btn btn-warning" onclick="duplicateOrder(${order.id})" title="Duplicate Order">📋</button>
+                            <button class="btn btn-info" onclick="viewOrderDetails(${order.id})" title="View Details">👁️</button>
+                            <button class="btn btn-danger" onclick="deleteOrder(${order.id})" title="Delete Order">🗑️</button>
+                        </div>
                     </td>
                 </tr>
                 `;
@@ -1702,6 +3050,55 @@
                 savedOrders = savedOrders.filter(order => order.id !== orderId);
                 updateOrdersTable();
                 showAlert('Order deleted successfully!', 'success');
+            }
+        }
+
+        function duplicateOrder(orderId) {
+            const order = savedOrders.find(o => o.id === orderId);
+            if (order) {
+                const newOrder = {
+                    ...order,
+                    id: Date.now(),
+                    partNumber: order.partNumber + '_COPY',
+                    dueDate: ''
+                };
+                savedOrders.push(newOrder);
+                updateOrdersTable();
+                alert(`Order duplicated successfully! New order ID: ${newOrder.id}`);
+            }
+        }
+
+        function viewOrderDetails(orderId) {
+            const order = savedOrders.find(o => o.id === orderId);
+            if (order) {
+                const details = `
+Order Details:
+• Part Number: ${order.partNumber}
+• Operation: ${order.operationSeq || 'All'}
+• Quantity: ${order.quantity}
+• Priority: ${order.priority}
+• Due Date: ${order.dueDate || 'No due date'}
+• Batch Mode: ${order.batchMode || 'Auto-Split'}
+• Breakdown Machine: ${order.breakdownMachine || 'None'}
+• Breakdown DateTime: ${order.breakdownDateTime || 'None'}
+• Start DateTime: ${order.startDateTime || 'Use Global'}
+• Holiday: ${order.holidayRange || 'None'}
+• Setup Window: ${order.setupWindow || '06:00-22:00'}
+                `;
+                alert(details);
+            }
+        }
+
+        function clearAllSavedOrders() {
+            if (savedOrders.length === 0) {
+                alert('No orders to clear.');
+                return;
+            }
+
+            if (confirm(`Are you sure you want to delete all ${savedOrders.length} orders? This action cannot be undone.`)) {
+                savedOrders = [];
+                updateOrdersTable();
+                alert('All orders cleared successfully!');
             }
         }
 
@@ -1738,6 +3135,17 @@
             const prRadio = document.querySelector(`input[name="priority"][value="${priorityValue}"]`);
             if (prRadio) prRadio.checked = true;
             document.getElementById('dueDate').value = order.dueDate;
+            
+            // Set batch mode
+            const batchModeValue = order.batchMode || 'auto-split';
+            const batchModeRadio = document.querySelector(`input[name="batchMode"][value="${batchModeValue}"]`);
+            if (batchModeRadio) {
+                batchModeRadio.checked = true;
+                // Update toggle visual state
+                document.querySelectorAll('.toggle-option').forEach(opt => opt.classList.remove('active'));
+                const activeToggle = document.querySelector(`.toggle-option[data-mode="${batchModeValue}"]`);
+                if (activeToggle) activeToggle.classList.add('active');
+            }
 
             document.getElementById('orderBreakdownMachine').value = order.breakdownMachine || '';
             // Prefill breakdown range fields
@@ -1838,38 +3246,65 @@
             return { rows: results, alerts };
         }
 
-        function runSchedule() {
+        async function runSchedule() {
             if (savedOrders.length === 0) {
                 alert('Please add at least one order before running the schedule');
                 return;
             }
 
-            document.getElementById('loadingIndicator').style.display = 'block';
-            document.getElementById('resultsCard').style.display = 'none';
+            try {
+                const userRole = await getCurrentUserRole();
+                
+                // For Test Users, ensure they have imported data
+                if (userRole === 'Test User' && !isUsingTestData) {
+                    showAlert('Test users must import Excel data first before running schedule', 'error');
+                    return;
+                }
 
-            // Simulate processing time
-            setTimeout(() => {
+                document.getElementById('loadingIndicator').style.display = 'block';
+                document.getElementById('resultsCard').style.display = 'none';
+
+                // Simulate processing time
+                setTimeout(() => {
                 try {
                     // Use the NEW scheduling engine from x10-browser.js
-                    const ordersData = savedOrders.map(order => ({
-                        partNumber: order.partNumber,
-                        quantity: order.quantity,
-                        priority: order.priority,
-                        dueDate: order.dueDate,
-                        operations: order.filteredOperations || [],
-                        breakdownMachine: order.breakdownMachine,
-                        breakdownDateTime: order.breakdownDateTime,
-                        startDateTime: order.startDateTime,
-                        holidayRange: order.holidayRange,
-                        setupWindow: order.setupWindow
-                    }));
+                    const ordersData = savedOrders.map(order => {
+                        // Normalize operations data for test users
+                        let operations = order.filteredOperations || [];
+                        if (isUsingTestData && operations.length > 0) {
+                            operations = operations.map(op => ({
+                                PartNumber: op.partnumber || op.PartNumber,
+                                OperationSeq: op.operationseq || op.OperationSeq,
+                                OperationName: op.operationname || op.OperationName,
+                                SetupTime_Min: op.setuptime_min || op.SetupTime_Min,
+                                Operator: op.operator || op.Operator,
+                                CycleTime_Min: op.cycletime_min || op.CycleTime_Min,
+                                Minimum_BatchSize: op.minimum_batchsize || op.Minimum_BatchSize,
+                                EligibleMachines: op.eligiblemachines || op.EligibleMachines
+                            }));
+                        }
+                        
+                        return {
+                            partNumber: order.partNumber,
+                            quantity: order.quantity,
+                            priority: order.priority,
+                            dueDate: order.dueDate,
+                            operations: operations,
+                            breakdownMachine: order.breakdownMachine,
+                            breakdownDateTime: order.breakdownDateTime,
+                            startDateTime: order.startDateTime,
+                            holidayRange: order.holidayRange,
+                            setupWindow: order.setupWindow
+                        };
+                    });
 
                     const globalSettings = {
                         startDateTime: advancedSettings.startDateTime,
                         setupWindow: advancedSettings.setupAvailabilityWindow,
                         breakdownMachines: advancedSettings.breakdownMachines,
                         breakdownDateTime: advancedSettings.breakdownDateTime,
-                        holidays: advancedSettings.holidays ? advancedSettings.holidays.split(',').map(h => h.trim()) : [],
+                        holidays: advancedSettings.holidays || [],
+                        breakdowns: advancedSettings.breakdowns || [],
                         shifts: {
                             shift1: advancedSettings.shift1,
                             shift2: advancedSettings.shift2,
@@ -1889,6 +3324,11 @@
                     document.getElementById('loadingIndicator').style.display = 'none';
                 }
             }, 1000);
+            } catch (error) {
+                console.error('Schedule initialization error:', error);
+                showAlert('Error initializing schedule: ' + error.message, 'error');
+                document.getElementById('loadingIndicator').style.display = 'none';
+            }
         }
 
         function processOrders() {
@@ -2928,11 +4368,35 @@
 
             // Display results table
             if (scheduleResults.rows && scheduleResults.rows.length > 0) {
-                tbody.innerHTML = scheduleResults.rows.map(row => `
-                    <tr>
+                tbody.innerHTML = scheduleResults.rows.map(row => {
+                    // Determine status based on due date comparison
+                    let status = '✅';
+                    let statusClass = 'status-success';
+                    
+                    if (row.DueDate && row.DueDate !== '2026-01-01 ⚠️') {
+                        const dueDate = new Date(row.DueDate);
+                        const runEnd = new Date(row.RunEnd);
+                        
+                        if (runEnd > dueDate) {
+                            status = '❌';
+                            statusClass = 'status-danger';
+                        } else if (runEnd.getTime() - dueDate.getTime() < 24 * 60 * 60 * 1000) { // Within 24 hours
+                            status = '⚠️';
+                            statusClass = 'status-warning';
+                        }
+                    } else if (row.DueDate === '2026-01-01 ⚠️') {
+                        status = '⚠️';
+                        statusClass = 'status-warning';
+                    }
+                    
+                    // Determine priority class
+                    const priorityClass = `priority-${row.Priority ? row.Priority.toLowerCase() : 'normal'}`;
+                    
+                    return `
+                        <tr class="${priorityClass}">
                         <td>${row.PartNumber}</td>
                         <td>${row.Order_Quantity}</td>
-                        <td>${row.Priority}</td>
+                            <td>${row.Priority || 'Normal'}</td>
                         <td>${row.Batch_ID}</td>
                         <td>${row.Batch_Qty}</td>
                         <td>${row.OperationSeq}</td>
@@ -2945,36 +4409,433 @@
                         <td class="nowrap">${row.RunEnd}</td>
                         <td class="nowrap">${row.Timing}</td>
                         <td class="nowrap">${row.DueDate}</td>
+                            <td class="${statusClass}">${status}</td>
                     </tr>
-                `).join('');
+                    `;
+                }).join('');
             } else {
-                tbody.innerHTML = '<tr><td colspan="15" style="text-align: center; color: #888;">No results to display</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="16" style="text-align: center; color: #888;">No results to display</td></tr>';
             }
 
             resultsCard.style.display = 'block';
             resultsCard.scrollIntoView({ behavior: 'smooth' });
         }
 
-        function exportToExcel() {
+        async function exportToExcel() {
             if (!scheduleResults.rows || scheduleResults.rows.length === 0) {
                 alert('No data to export');
                 return;
             }
 
             try {
-                const ws = XLSX.utils.json_to_sheet(scheduleResults.rows);
-                const wb = XLSX.utils.book_new();
-                XLSX.utils.book_append_sheet(wb, ws, "Schedule Results");
+                const userRole = await getCurrentUserRole();
+                
+                // For Test Users, only export if they're using test data
+                if (userRole === 'Test User' && !isUsingTestData) {
+                    showAlert('Test users must import Excel data first before exporting', 'error');
+                    return;
+                }
 
-                // Generate filename with timestamp
-                const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
-                const filename = `production_schedule_${timestamp}.xlsx`;
-
-                XLSX.writeFile(wb, filename);
-                showAlert('Excel file exported successfully!', 'success');
+                // Use the enhanced ExcelExporter class
+                const exporter = new ExcelExporter();
+                const result = exporter.exportToExcel(scheduleResults);
+                
+                if (result.success) {
+                    const dataSource = isUsingTestData ? ' (from uploaded Excel)' : ' (from database)';
+                    showAlert(`Excel file exported successfully! Filename: ${result.filename}${dataSource}`, 'success');
+                    
+                    // Log export statistics
+                    const stats = exporter.getExportStats(scheduleResults);
+                    console.log('Export Statistics:', stats);
+                } else {
+                    showAlert(`Error exporting to Excel: ${result.error}`, 'error');
+                }
             } catch (error) {
                 console.error('Export error:', error);
                 showAlert('Error exporting to Excel: ' + error.message, 'error');
+            }
+        }
+
+        // Global variables for role-based data management
+        let currentUserRole = null;
+        let testUserData = null; // In-memory data for Test Users
+        let isUsingTestData = false;
+
+        // Role-based Excel Import Function
+        async function importFromExcel() {
+            try {
+                // Get current user role
+                const userRole = await getCurrentUserRole();
+                
+                if (userRole === 'Operator') {
+                    showAlert('Operators cannot import Excel files. Contact your administrator.', 'error');
+                    return;
+                }
+
+                // Create file input element
+                const fileInput = document.createElement('input');
+                fileInput.type = 'file';
+                fileInput.accept = '.xlsx,.xls';
+                fileInput.style.display = 'none';
+                
+                fileInput.onchange = async function(event) {
+                    const file = event.target.files[0];
+                    if (!file) return;
+
+                    try {
+                        showAlert('Processing Excel file...', 'info');
+                        
+                        // Parse Excel file
+                        const excelData = await parseExcelFile(file);
+                        
+                        if (userRole === 'Admin') {
+                            // Admin: Import to database
+                            await importToDatabase(excelData);
+                            showAlert('Excel data imported to database successfully!', 'success');
+                            
+                            // Refresh the operations data from database
+                            await refreshOperationsFromDB();
+                            
+                        } else if (userRole === 'Test User') {
+                            // Test User: Keep in memory only
+                            testUserData = excelData;
+                            isUsingTestData = true;
+                            
+                            // Update UI to show test data
+                            updateUIForTestData();
+                            showAlert('Excel data loaded for testing (not saved to database)', 'info');
+                        }
+                        
+                    } catch (error) {
+                        console.error('Import error:', error);
+                        showAlert('Error importing Excel file: ' + error.message, 'error');
+                    }
+                };
+                
+                // Trigger file selection
+                document.body.appendChild(fileInput);
+                fileInput.click();
+                document.body.removeChild(fileInput);
+                
+            } catch (error) {
+                console.error('Import initialization error:', error);
+                showAlert('Error initializing import: ' + error.message, 'error');
+            }
+        }
+
+        // Get current user role from Supabase
+        async function getCurrentUserRole() {
+            if (currentUserRole) return currentUserRole;
+            
+            try {
+                const { data: { session } } = await supabase.auth.getSession();
+                if (!session) throw new Error('No active session');
+                
+                const { data: profile, error } = await supabase
+                    .from('profiles')
+                    .select('role')
+                    .eq('id', session.user.id)
+                    .single();
+                
+                if (error) throw error;
+                
+                currentUserRole = profile.role;
+                return currentUserRole;
+            } catch (error) {
+                console.error('Error getting user role:', error);
+                return 'Operator'; // Default fallback
+            }
+        }
+
+        // Parse Excel file using SheetJS
+        async function parseExcelFile(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    try {
+                        // Load SheetJS library if not already loaded
+                        if (typeof XLSX === 'undefined') {
+                            const script = document.createElement('script');
+                            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+                            script.onload = () => parseExcelData(e.target.result, resolve, reject);
+                            document.head.appendChild(script);
+                        } else {
+                            parseExcelData(e.target.result, resolve, reject);
+                        }
+                    } catch (error) {
+                        reject(error);
+                    }
+                };
+                reader.onerror = () => reject(new Error('Failed to read file'));
+                reader.readAsArrayBuffer(file);
+            });
+        }
+
+        function parseExcelData(arrayBuffer, resolve, reject) {
+            try {
+                const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+                const sheetName = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[sheetName];
+                const jsonData = XLSX.utils.sheet_to_json(worksheet);
+                
+                // Validate and normalize the data
+                const normalizedData = jsonData.map(row => ({
+                    partnumber: row.PartNumber || row.partnumber || '',
+                    operationseq: parseInt(row.OperationSeq || row.operationseq) || 0,
+                    operationname: row.OperationName || row.operationname || '',
+                    setuptime_min: parseInt(row.SetupTime_Min || row.setuptime_min) || 0,
+                    operator: row.Operater || row.operator || '', // Note: Excel has "Operater" typo
+                    cycletime_min: parseInt(row.CycleTime_Min || row.cycletime_min) || 0,
+                    minimum_batchsize: parseInt(row.Minimum_BatchSize || row.minimum_batchsize) || 1,
+                    eligiblemachines: Array.isArray(row.EligibleMachines) ? row.EligibleMachines : 
+                                    (row.EligibleMachines || row.eligiblemachines || '').split(',').map(m => m.trim()).filter(m => m)
+                }));
+                
+                // Validate required fields
+                const invalidRows = normalizedData.filter(row => !row.partnumber || !row.operationseq);
+                if (invalidRows.length > 0) {
+                    throw new Error(`Invalid data: ${invalidRows.length} rows missing PartNumber or OperationSeq`);
+                }
+                
+                resolve(normalizedData);
+            } catch (error) {
+                reject(new Error('Failed to parse Excel data: ' + error.message));
+            }
+        }
+
+        // Import data to Supabase database (Admin only)
+        async function importToDatabase(data) {
+            try {
+                // Clear existing data first
+                const { error: deleteError } = await supabase
+                    .from('master_operations')
+                    .delete()
+                    .neq('partnumber', ''); // Delete all rows
+                
+                if (deleteError) throw deleteError;
+                
+                // Insert new data in batches
+                const batchSize = 100;
+                for (let i = 0; i < data.length; i += batchSize) {
+                    const batch = data.slice(i, i + batchSize);
+                    const { error } = await supabase
+                        .from('master_operations')
+                        .insert(batch);
+                    
+                    if (error) throw error;
+                }
+                
+            } catch (error) {
+                throw new Error('Database import failed: ' + error.message);
+            }
+        }
+
+        // Update UI for Test User data
+        function updateUIForTestData() {
+            // Store original OP_MASTER before overriding
+            if (!window.originalOpMaster && window.OP_MASTER) {
+                window.originalOpMaster = [...window.OP_MASTER];
+            }
+            
+            // Add visual indicator that test data is being used
+            const indicator = document.createElement('div');
+            indicator.id = 'testDataIndicator';
+            indicator.style.cssText = `
+                position: fixed;
+                top: 10px;
+                right: 10px;
+                background: #ff9800;
+                color: white;
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-weight: bold;
+                z-index: 1000;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            `;
+            indicator.textContent = '🧪 TEST MODE - Using uploaded Excel data';
+            
+            // Remove existing indicator if present
+            const existing = document.getElementById('testDataIndicator');
+            if (existing) existing.remove();
+            
+            document.body.appendChild(indicator);
+            
+            // Update part number search to use test data
+            if (testUserData) {
+                setupPartNumberSearchForTestData();
+            }
+        }
+
+        // Setup part number search for test data
+        function setupPartNumberSearchForTestData() {
+            const partNumbers = [...new Set(testUserData.map(op => op.partnumber))];
+            
+            // Override the getAvailablePartNumbers function
+            window.getAvailablePartNumbers = function() {
+                return partNumbers;
+            };
+            
+            // Override the global OP_MASTER for test data
+            window.OP_MASTER = testUserData.map(op => ({
+                PartNumber: op.partnumber,
+                OperationSeq: op.operationseq,
+                OperationName: op.operationname,
+                SetupTime_Min: op.setuptime_min,
+                Operator: op.operator,
+                CycleTime_Min: op.cycletime_min,
+                Minimum_BatchSize: op.minimum_batchsize,
+                EligibleMachines: op.eligiblemachines
+            }));
+            
+            // Re-enable part number input for test users after import
+            const partNumberInput = document.getElementById('partNumber');
+            if (partNumberInput) {
+                partNumberInput.disabled = false;
+                partNumberInput.placeholder = 'Search part numbers...';
+            }
+            
+            // Refresh the part number search
+            setupPartNumberSearch();
+        }
+
+        // Refresh operations from database (for Admin/Operator)
+        async function refreshOperationsFromDB() {
+            try {
+                const { data, error } = await supabase
+                    .from('master_operations')
+                    .select('*')
+                    .order('partnumber', { ascending: true })
+                    .order('operationseq', { ascending: true });
+                
+                if (error) throw error;
+                
+                // Update global operations data
+                window.operationsData = data;
+                
+                // Refresh part number search
+                setupPartNumberSearch();
+                
+            } catch (error) {
+                console.error('Error refreshing operations:', error);
+                showAlert('Error refreshing data from database', 'error');
+            }
+        }
+
+        // Update user role indicator in UI
+        async function updateUserRoleIndicator() {
+            try {
+                const userRole = await getCurrentUserRole();
+                const indicator = document.getElementById('userRoleIndicator');
+                
+                if (indicator) {
+                    indicator.textContent = userRole;
+                    
+                    // Style based on role
+                    switch(userRole) {
+                        case 'Admin':
+                            indicator.style.backgroundColor = '#dc3545';
+                            indicator.style.color = 'white';
+                            break;
+                        case 'Operator':
+                            indicator.style.backgroundColor = '#28a745';
+                            indicator.style.color = 'white';
+                            break;
+                        case 'Test User':
+                            indicator.style.backgroundColor = '#ff9800';
+                            indicator.style.color = 'white';
+                            break;
+                        default:
+                            indicator.style.backgroundColor = '#6c757d';
+                            indicator.style.color = 'white';
+                    }
+                }
+            } catch (error) {
+                console.error('Error updating user role indicator:', error);
+            }
+        }
+
+        // Clear test data when user logs out (for Test Users)
+        async function clearTestUserData() {
+            testUserData = null;
+            isUsingTestData = false;
+            
+            // Remove test data indicator
+            const indicator = document.getElementById('testDataIndicator');
+            if (indicator) indicator.remove();
+            
+            // Check if current user is Test User
+            const userRole = await getCurrentUserRole();
+            if (userRole === 'Test User') {
+                // For Test Users, clear everything and setup empty state
+                window.OP_MASTER = [];
+                setupEmptyPartNumberSearch();
+            } else {
+                // For Admin/Operator, reset to original database data
+                if (window.originalOpMaster) {
+                    window.OP_MASTER = window.originalOpMaster;
+                }
+                setupPartNumberSearch();
+            }
+        }
+
+        // Logout function with test data cleanup
+        async function logout() {
+            try {
+                // Clear test user data if present
+                clearTestUserData();
+                
+                // Sign out from Supabase
+                const { error } = await supabase.auth.signOut();
+                if (error) {
+                    console.error('Logout error:', error);
+                    showAlert('Error during logout: ' + error.message, 'error');
+                    return;
+                }
+                
+                // Redirect to auth page with logout parameter
+                window.location.href = 'auth.html?logged_out=true';
+                
+            } catch (error) {
+                console.error('Logout error:', error);
+                showAlert('Error during logout: ' + error.message, 'error');
+            }
+        }
+
+        // Clear session data based on user role
+        async function clearSession() {
+            try {
+                const userRole = await getCurrentUserRole();
+                
+                // Show confirmation dialog
+                const confirmMessage = userRole === 'Test User' 
+                    ? 'This will clear all orders, results, and imported Excel data. Continue?'
+                    : 'This will clear all orders and results. Continue?';
+                
+                if (!confirm(confirmMessage)) return;
+                
+                // Clear saved orders
+                savedOrders = [];
+                updateOrdersTable();
+                
+                // Clear schedule results
+                scheduleResults = { rows: [], alerts: [] };
+                document.getElementById('resultsCard').style.display = 'none';
+                document.getElementById('exportBtn').disabled = true;
+                
+                // Clear form
+                resetForm();
+                
+                // For Test Users, also clear imported Excel data
+                if (userRole === 'Test User') {
+                    await clearTestUserData();
+                    showAlert('Session cleared. All orders, results, and imported data removed.', 'success');
+                } else {
+                    showAlert('Session cleared. All orders and results removed.', 'success');
+                }
+                
+            } catch (error) {
+                console.error('Error clearing session:', error);
+                showAlert('Error clearing session: ' + error.message, 'error');
             }
         }
 

@@ -251,8 +251,13 @@ class ExcelExporter {
      * @returns {string} Breakdown date time
      */
     getBreakdownDateTime(machine) {
-        // This would typically come from your breakdown settings
-        // For now, return empty or a placeholder
+        // Get breakdown data from global application settings
+        if (typeof window !== 'undefined' && window.breakdowns && Array.isArray(window.breakdowns)) {
+            const breakdown = window.breakdowns.find(b => b.machines && b.machines.includes(machine));
+            if (breakdown) {
+                return `${breakdown.startDateTime} - ${breakdown.endDateTime}`;
+            }
+        }
         return '';
     }
 
@@ -271,8 +276,12 @@ class ExcelExporter {
      * @returns {string} Holiday info
      */
     getHolidayInfo() {
-        // This would typically come from your holiday settings
-        return '';
+        // Get holiday data from global application settings
+        if (typeof window !== 'undefined' && window.holidays && Array.isArray(window.holidays)) {
+            if (window.holidays.length === 0) return 'No holidays configured';
+            return window.holidays.map(h => `${h.startDateTime} - ${h.endDateTime} (${h.reason || 'Holiday'})`).join('; ');
+        }
+        return 'No holidays configured';
     }
 
     /**
@@ -280,7 +289,10 @@ class ExcelExporter {
      * @returns {string} Setup window
      */
     getSetupWindow() {
-        // This would typically come from your settings
+        // Get setup window from global application settings
+        if (typeof window !== 'undefined' && window.advancedSettings) {
+            return window.advancedSettings.setupAvailabilityWindow || '06:00-22:00';
+        }
         return '06:00-22:00';
     }
 
@@ -289,6 +301,10 @@ class ExcelExporter {
      * @returns {string} Shift 1
      */
     getShift1() {
+        // Get shift 1 from global application settings
+        if (typeof window !== 'undefined' && window.advancedSettings) {
+            return window.advancedSettings.shift1 || '06:00-14:00';
+        }
         return '06:00-14:00';
     }
 
@@ -297,6 +313,10 @@ class ExcelExporter {
      * @returns {string} Shift 2
      */
     getShift2() {
+        // Get shift 2 from global application settings
+        if (typeof window !== 'undefined' && window.advancedSettings) {
+            return window.advancedSettings.shift2 || '14:00-22:00';
+        }
         return '14:00-22:00';
     }
 
@@ -305,6 +325,10 @@ class ExcelExporter {
      * @returns {string} Shift 3
      */
     getShift3() {
+        // Get shift 3 from global application settings
+        if (typeof window !== 'undefined' && window.advancedSettings) {
+            return window.advancedSettings.prodShift3 || '22:00-06:00';
+        }
         return '22:00-06:00';
     }
 

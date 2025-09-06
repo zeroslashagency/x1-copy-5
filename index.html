@@ -3000,8 +3000,11 @@
                 // Display operation sequences more clearly
                 let operationDisplay = 'All';
                 if (order.filteredOperations && order.filteredOperations.length > 0) {
-                    // Prefer the actual filtered ops list for accuracy
-                    operationDisplay = order.filteredOperations.map(op => `Op ${op.OperationSeq}`).join(', ');
+                    // Handle both database format and test user format
+                    operationDisplay = order.filteredOperations.map(op => {
+                        const opSeq = op.OperationSeq || op.operationseq;
+                        return `Op ${opSeq}`;
+                    }).join(', ');
                 } else if (order.operationSeq) {
                     operationDisplay = order.operationSeq;
                 }

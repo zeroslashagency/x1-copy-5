@@ -1181,74 +1181,56 @@ class FixedUnifiedSchedulingEngine {
         
         Logger.log(`[USER-ALGORITHM] Applying exact piece-level algorithm: ${batchQty} pieces × ${cycleTime}min = ${batchQty * cycleTime}min total`);
 
-        // CALCULATE RUN DURATION: BatchQty × CycleTime (USER'S FORMULA)
-        const totalRunDuration = batchQty * cycleTime; // minutes
-        const totalRunDurationMs = totalRunDuration * 60000; // milliseconds
-
-        // CALCULATE FIRST PIECE DONE TIME
-        let firstPieceDoneTime;
-        if (previousOpPieceCompletionTimes && previousOpPieceCompletionTimes.length > 0) {
-            // PIECE-LEVEL HANDOFF: Current operation's first piece is ready when previous operation's first piece is ready
-            // This triggers the setup for the current operation
-            firstPieceDoneTime = new Date(previousOpPieceCompletionTimes[0]);
-            Logger.log(`[PIECE-LEVEL-HANDOFF] Previous op first piece ready at: ${firstPieceDoneTime.toISOString()}`);
-            Logger.log(`[PIECE-LEVEL-HANDOFF] This triggers setup for Op${operation.OperationSeq}`);
-        } else {
-            // First operation - first piece ready at setup end
-            firstPieceDoneTime = new Date(setupEndTime);
-            Logger.log(`[USER-ALGORITHM] First piece ready at setup end: ${firstPieceDoneTime.toISOString()}`);
+        // CRITICAL FIX: Implement TRUE piece-by-piece processing
+        // Each piece waits for the previous piece to complete (sequential processing)
+        let currentMachineTime = new Date(setupEndTime);
+        const pieceCompletionTimes = [];
+        
+        for (let pieceIndex = 0; pieceIndex < batchQty; pieceIndex++) {
+            // When is this piece ready from previous operation?
+            let pieceReadyTime;
+            if (previousOpPieceCompletionTimes && previousOpPieceCompletionTimes.length > 0) {
+                // Piece ready when it completed previous operation
+                pieceReadyTime = previousOpPieceCompletionTimes[pieceIndex] || new Date(setupEndTime);
+            } else {
+                // First operation - all pieces ready at setup end
+                pieceReadyTime = new Date(setupEndTime);
+            }
+            
+            // RunStartTime = max(PieceReadyTime, CurrentMachineTime)
+            const runStartTime = new Date(Math.max(
+                pieceReadyTime.getTime(),
+                currentMachineTime.getTime()
+            ));
+            
+            // RunEndTime = RunStartTime + CycleTime
+            const runEndTime = new Date(runStartTime.getTime() + cycleTime * 60000);
+            
+            pieceCompletionTimes.push(runEndTime);
+            
+            // Update machine time for next piece (sequential processing)
+            currentMachineTime = new Date(runEndTime);
         }
-
-        // VALIDATE firstPieceDoneTime
-        if (!firstPieceDoneTime || isNaN(firstPieceDoneTime.getTime())) {
-            Logger.log(`[ERROR] Invalid firstPieceDoneTime: ${firstPieceDoneTime}`);
-            throw new Error(`Invalid firstPieceDoneTime: ${firstPieceDoneTime}`);
-        }
-
-        // CALCULATE RUN START AND END TIMES
-        // PIECE-LEVEL LOGIC: Run starts after setup is complete, regardless of when first piece was ready
+        
+        // Calculate operation timing
         const runStartTime = new Date(setupEndTime);
-        let runEndTime = new Date(runStartTime.getTime() + totalRunDurationMs);
+        const runEndTime = pieceCompletionTimes[batchQty - 1]; // Last piece completion time
 
-        // CRITICAL FIX: Implement CORRECT piece-level handoff logic
-        // In piece-level flow, operations can overlap - Op2 processes pieces while Op1 is still running
-        // Op2 RunEnd = Op2 RunStart + Op2 Processing Time (independent of Op1's total completion)
-        // Only constraint: Op2 cannot finish before Op1's first piece triggers Op2 to start
-        if (previousOpRunEnd) {
-            Logger.log(`[PIECE-LEVEL-HANDOFF] Op${operation.OperationSeq} natural RunEnd: ${runEndTime.toISOString()}`);
-            Logger.log(`[PIECE-LEVEL-HANDOFF] Previous Op RunEnd: ${previousOpRunEnd.toISOString()}`);
-            
-            // CORRECT PIECE-LEVEL LOGIC: Each operation runs independently once triggered
-            // No need to wait for previous operation to complete entirely
-            const naturalRunEnd = new Date(runStartTime.getTime() + totalRunDurationMs);
-            
-            Logger.log(`[PIECE-LEVEL-HANDOFF] Op${operation.OperationSeq} will finish naturally at: ${naturalRunEnd.toISOString()}`);
-            Logger.log(`[PIECE-LEVEL-HANDOFF] Previous operation finishes at: ${previousOpRunEnd.toISOString()}`);
-            
-            // Use natural completion time - piece-level flow allows overlap
-            runEndTime = naturalRunEnd;
-            
-            Logger.log(`[PIECE-LEVEL-HANDOFF] ✅ Op${operation.OperationSeq} RunEnd set to natural completion: ${runEndTime.toISOString()}`);
-        }
-
-        // CALCULATE FIRST PIECE COMPLETION TIME
-        const firstPieceCompletionTime = new Date(runStartTime.getTime() + cycleTime * 60000);
-
-        Logger.log(`[USER-ALGORITHM] Run duration: ${totalRunDuration}min (${batchQty} × ${cycleTime}min)`);
         Logger.log(`[USER-ALGORITHM] Run start: ${runStartTime.toISOString()}`);
         Logger.log(`[USER-ALGORITHM] Run end: ${runEndTime.toISOString()}`);
-        Logger.log(`[USER-ALGORITHM] First piece done: ${firstPieceCompletionTime.toISOString()}`);
+        Logger.log(`[USER-ALGORITHM] First piece done: ${pieceCompletionTimes[0].toISOString()}`);
 
-        // CREATE PIECE COMPLETION TIMES ARRAY (for next operation)
-        const pieceCompletionTimes = [];
+        // Calculate piece start times for return value
         const pieceStartTimes = [];
-        
-        for (let piece = 0; piece < batchQty; piece++) {
-            const pieceStartTime = new Date(runStartTime.getTime() + piece * cycleTime * 60000);
-            const pieceEndTime = new Date(pieceStartTime.getTime() + cycleTime * 60000);
-            
-            pieceStartTimes.push(pieceStartTime);
-            pieceCompletionTimes.push(pieceEndTime);
+        for (let pieceIndex = 0; pieceIndex < batchQty; pieceIndex++) {
+            const pieceReadyTime = previousOpPieceCompletionTimes && previousOpPieceCompletionTimes.length > 0 ? 
+                previousOpPieceCompletionTimes[pieceIndex] || new Date(setupEndTime) : 
+                new Date(setupEndTime);
+            const runStart = new Date(Math.max(
+                pieceReadyTime.getTime(),
+                new Date(setupEndTime).getTime() + pieceIndex * cycleTime * 60000
+            ));
+            pieceStartTimes.push(runStart);
         }
 
         // RETURN RESULTS WITH USER'S ALGORITHM
@@ -1259,8 +1241,8 @@ class FixedUnifiedSchedulingEngine {
             runEndTime,
             pieceCompletionTimes,
             pieceStartTimes,
-            firstPieceDone: firstPieceCompletionTime,
-            totalWorkTime: totalRunDuration,
+            firstPieceDone: pieceCompletionTimes[0],
+            totalWorkTime: batchQty * cycleTime,
             totalPausedTime: 0, // No pauses in user's algorithm
             CycleTime_Min: cycleTime,
             Batch_Qty: batchQty
@@ -2540,7 +2522,7 @@ window.processOrderSingle = function(order) {
         }];
 
         const globalSettings = {
-            startDateTime: null, // Will use current time
+            startDateTime: "2025-09-01T06:00:00", // Fixed start time for testing
             setupWindow: "06:00-22:00",
             breakdownMachines: [],
             breakdownDateTime: "",

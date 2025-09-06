@@ -24,6 +24,32 @@ app.get('/auth.html', (req, res) => {
   res.sendFile(path.join(__dirname, 'auth.html'));
 });
 
+// JavaScript files routes
+app.get('/app.js', (req, res) => {
+  res.setHeader('Content-Type', 'application/javascript');
+  res.sendFile(path.join(__dirname, 'app.js'));
+});
+
+app.get('/x10-browser.js', (req, res) => {
+  res.setHeader('Content-Type', 'application/javascript');
+  res.sendFile(path.join(__dirname, 'x10-browser.js'));
+});
+
+app.get('/data.js', (req, res) => {
+  res.setHeader('Content-Type', 'application/javascript');
+  res.sendFile(path.join(__dirname, 'data.js'));
+});
+
+app.get('/db.js', (req, res) => {
+  res.setHeader('Content-Type', 'application/javascript');
+  res.sendFile(path.join(__dirname, 'db.js'));
+});
+
+app.get('/excel_export.js', (req, res) => {
+  res.setHeader('Content-Type', 'application/javascript');
+  res.sendFile(path.join(__dirname, 'excel_export.js'));
+});
+
 // Health check
 app.get('/health', (req, res) => {
   res.json({ ok: true, service: 'local-writer', cwd: process.cwd() });

@@ -83,49 +83,83 @@ class FixedUnifiedSchedulingEngine {
      * @param {number} minBatchSize - Minimum batch size
      * @returns {Array} Array of batch objects with batchId and quantity
      */
-    calculateBatchSplitting(totalQuantity, minBatchSize, priority = 'normal', dueDate = null, startDate = null) {
-        Logger.log(`[BATCH-CALC] Calculating batch splitting: ${totalQuantity} pieces, min batch size: ${minBatchSize}, priority: ${priority}`);
+    calculateBatchSplitting(totalQuantity, minBatchSize, priority = 'normal', dueDate = null, startDate = null, batchMode = 'auto-split', customBatchSize = null) {
+        Logger.log(`[BATCH-CALC] Calculating batch splitting: ${totalQuantity} pieces, batch mode: ${batchMode}, custom size: ${customBatchSize}`);
         
-        // USER'S SPECIFIC BATCH SPLITTING REQUIREMENTS
-        // Batch Qty maintain 300 above - if 600 you can split 300,300
-        const TARGET_BATCH_SIZE = 300; // User's preferred batch size
-        const MIN_BATCH_SIZE = Math.max(minBatchSize, 100); // Minimum 100 pieces per batch
-        
-        // SIMPLE BATCH SPLITTING LOGIC
         let batches = [];
         
-        if (totalQuantity <= TARGET_BATCH_SIZE) {
-            // Single batch for quantities <= 300
-            batches.push({
-                batchId: 'B01',
-                quantity: totalQuantity,
-                batchIndex: 0
-            });
-            Logger.log(`[BATCH-CALC] Single batch: ${totalQuantity} pieces`);
-        } else {
-            // Split into batches of 300 each
-            let remainingQuantity = totalQuantity;
-            let batchIndex = 0;
-            
-            while (remainingQuantity > 0) {
-                batchIndex++;
-                const batchId = `B${String(batchIndex).padStart(2, '0')}`;
-                
-                // Use 300 as batch size, but ensure last batch gets remaining pieces
-                const batchQuantity = Math.min(TARGET_BATCH_SIZE, remainingQuantity);
-                
+        // Handle different batch modes
+        switch (batchMode) {
+            case 'single-batch':
+                // Single Batch: No splitting (qty stays as-is)
                 batches.push({
-                    batchId: batchId,
-                    quantity: batchQuantity,
-                    batchIndex: batchIndex - 1
+                    batchId: 'B01',
+                    quantity: totalQuantity,
+                    batchIndex: 0
                 });
+                Logger.log(`[BATCH-CALC] Single batch mode: ${totalQuantity} pieces`);
+                break;
                 
-                remainingQuantity -= batchQuantity;
-                Logger.log(`[BATCH-CALC] Created ${batchId}: ${batchQuantity} pieces (remaining: ${remainingQuantity})`);
-            }
+            case 'custom-batch-size':
+                // Custom: Use user-defined batch size
+                const userBatchSize = parseInt(customBatchSize) || 300;
+                let remainingQuantity = totalQuantity;
+                let batchIndex = 0;
+                
+                while (remainingQuantity > 0) {
+                    batchIndex++;
+                    const batchId = `B${String(batchIndex).padStart(2, '0')}`;
+                    const batchQuantity = Math.min(userBatchSize, remainingQuantity);
+                    
+                    batches.push({
+                        batchId: batchId,
+                        quantity: batchQuantity,
+                        batchIndex: batchIndex - 1
+                    });
+                    
+                    remainingQuantity -= batchQuantity;
+                    Logger.log(`[BATCH-CALC] Custom batch ${batchId}: ${batchQuantity} pieces (remaining: ${remainingQuantity})`);
+                }
+                break;
+                
+            case 'auto-split':
+            default:
+                // Auto Split: Use backend's optimal algorithm
+                const TARGET_BATCH_SIZE = 300; // Optimal batch size
+                const MIN_BATCH_SIZE = Math.max(minBatchSize, 100);
+                
+                if (totalQuantity <= TARGET_BATCH_SIZE) {
+                    // Single batch for quantities <= 300
+                    batches.push({
+                        batchId: 'B01',
+                        quantity: totalQuantity,
+                        batchIndex: 0
+                    });
+                    Logger.log(`[BATCH-CALC] Auto-split single batch: ${totalQuantity} pieces`);
+                } else {
+                    // Split into optimal batches of 300 each
+                    let remainingQuantity = totalQuantity;
+                    let batchIndex = 0;
+                    
+                    while (remainingQuantity > 0) {
+                        batchIndex++;
+                        const batchId = `B${String(batchIndex).padStart(2, '0')}`;
+                        const batchQuantity = Math.min(TARGET_BATCH_SIZE, remainingQuantity);
+                        
+                        batches.push({
+                            batchId: batchId,
+                            quantity: batchQuantity,
+                            batchIndex: batchIndex - 1
+                        });
+                        
+                        remainingQuantity -= batchQuantity;
+                        Logger.log(`[BATCH-CALC] Auto-split batch ${batchId}: ${batchQuantity} pieces (remaining: ${remainingQuantity})`);
+                    }
+                }
+                break;
         }
         
-        Logger.log(`[BATCH-CALC] Final result: ${batches.length} batches created`);
+        Logger.log(`[BATCH-CALC] Final result: ${batches.length} batches created using ${batchMode} mode`);
         batches.forEach((batch, index) => {
             Logger.log(`[BATCH-CALC] Batch ${index + 1}: ${batch.batchId} (${batch.quantity} pieces)`);
         });
@@ -270,7 +304,7 @@ class FixedUnifiedSchedulingEngine {
             // THREE-BATCH SPLITTING LOGIC
             const totalQuantity = orderData.quantity;
             const minBatchSize = operations[0].Minimum_BatchSize || 100; // Default minimum batch size
-            const batches = this.calculateBatchSplitting(totalQuantity, minBatchSize, orderData.priority, orderData.dueDate, orderData.startDateTime);
+            const batches = this.calculateBatchSplitting(totalQuantity, minBatchSize, orderData.priority, orderData.dueDate, orderData.startDateTime, orderData.batchMode, orderData.customBatchSize);
             
             Logger.log(`[BATCH-SPLITTING] Total Qty: ${totalQuantity}, Min Batch Size: ${minBatchSize}`);
             Logger.log(`[BATCH-SPLITTING] Calculated Batches: ${batches.length} batches`);

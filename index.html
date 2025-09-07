@@ -1465,9 +1465,8 @@
                     </div>
 
                     <div class="form-group">
-                        <label for="dueDate">Due Date</label>
+                        <label for="dueDate">Due Date (Optional)</label>
                         <input type="date" id="dueDate">
-                        <small style="color: #666; font-size: 0.8rem;">Optional - Leave blank for no due date constraint</small>
                     </div>
 
                     <div class="form-group">
@@ -2021,32 +2020,16 @@
         }
 
         function setDefaultDueDate() {
-            const oneWeekFromNow = new Date();
-            oneWeekFromNow.setDate(oneWeekFromNow.getDate() + 7); // One week from now
-            document.getElementById('dueDate').value = oneWeekFromNow.toISOString().split('T')[0];
+            // No longer set default due date - leave field empty for optional behavior
+            // const oneWeekFromNow = new Date();
+            // oneWeekFromNow.setDate(oneWeekFromNow.getDate() + 7);
+            // document.getElementById('dueDate').value = oneWeekFromNow.toISOString().split('T')[0];
         }
 
         function setupDueDateField() {
+            // Due date is now optional - no automatic default setting
             const dueDateInput = document.getElementById('dueDate');
-            
-            // Set default value if field is empty
-            if (!dueDateInput.value) {
-                setDefaultDueDate();
-            }
-            
-            // Add event listener to set default when field becomes empty
-            dueDateInput.addEventListener('blur', function() {
-                if (!this.value) {
-                    setDefaultDueDate();
-                }
-            });
-            
-            // Add event listener to set default when field is cleared
-            dueDateInput.addEventListener('input', function() {
-                if (!this.value) {
-                    setDefaultDueDate();
-                }
-            });
+            // Remove auto-fill behavior to allow truly optional due dates
         }
 
         function setupPartNumberSearch() {
@@ -2830,10 +2813,7 @@
             }
 
             const dueDate = document.getElementById('dueDate').value;
-            if (!dueDate) {
-                alert('Please select a due date');
-                return;
-            }
+            // Due date is now optional - no validation required
 
             // Ensure latest checkbox selections are captured even if OK wasn't clicked
             let operationSeq = document.getElementById('operationSeq').value;
@@ -2862,6 +2842,10 @@
             // Capture batch mode
             const batchModeElement = document.querySelector('input[name="batchMode"]:checked');
             const batchMode = batchModeElement ? batchModeElement.value : 'auto-split';
+            
+            // Capture custom batch size if in custom mode
+            const customBatchSize = batchMode === 'custom-batch-size' ? 
+                document.getElementById('customBatchSize').value : null;
 
             // Capture optional overrides
             const order = {
@@ -2871,8 +2855,9 @@
                 filteredOperations: filteredOperations, // Store filtered operations
                 quantity: quantity,
                 priority: priorityElement.value,
-                dueDate: dueDate,
+                dueDate: dueDate || null, // Store null if empty
                 batchMode: batchMode,
+                customBatchSize: customBatchSize,
                 // Optional overrides (null if blank, will use global settings)
                 breakdownMachine: document.getElementById('orderBreakdownMachine').value || null,
                 breakdownDateTime: buildBreakdownRangeString(),
@@ -2974,7 +2959,7 @@
         function resetForm() {
             document.getElementById('orderForm').reset();
             selectedPartNumber = '';
-            setDefaultDueDate();
+            // No longer set default due date - leave empty for optional behavior
             // Clear holiday range explicitly (since reset may not affect datetime-local consistently across browsers)
             const holStart = document.getElementById('orderHolidayStart');
             const holEnd = document.getElementById('orderHolidayEnd');
@@ -3028,7 +3013,7 @@
                     <td>${operationDisplay}</td>
                     <td>${order.quantity}</td>
                     <td><span class="priority-badge priority-${order.priority.toLowerCase()}">${order.priority}</span></td>
-                    <td>${new Date(order.dueDate).toLocaleDateString()}</td>
+                    <td>${order.dueDate ? new Date(order.dueDate).toLocaleDateString() : 'No Due Date'}</td>
                     <td><span class="batch-mode-badge batch-mode-${batchModeClass}">${batchModeDisplay}</span></td>
                     <td>${order.breakdownMachine || 'None'}</td>
                     <td>${order.breakdownDateTime || 'None'}</td>
@@ -3243,7 +3228,7 @@ Order Details:
                     RunStart: formatDateTime(opResult.RunStart),
                     RunEnd: formatDateTime(opResult.RunEnd),
                     Timing: opResult.Timing,
-                    DueDate: formatDate(order.dueDate)
+                    DueDate: order.dueDate ? formatDate(order.dueDate) : 'No Due Date'
                 });
             });
             return { rows: results, alerts };
@@ -3292,6 +3277,8 @@ Order Details:
                             quantity: order.quantity,
                             priority: order.priority,
                             dueDate: order.dueDate,
+                            batchMode: order.batchMode || 'auto-split',
+                            customBatchSize: order.customBatchSize,
                             operations: operations,
                             breakdownMachine: order.breakdownMachine,
                             breakdownDateTime: order.breakdownDateTime,
@@ -3432,7 +3419,7 @@ Order Details:
                             RunStart: formatDateTime(opResult.RunStart),
                             RunEnd: formatDateTime(opResult.RunEnd),
                             Timing: opResult.Timing,
-                            DueDate: `${formatDate(order.dueDate)} ${dueMark}`
+                            DueDate: order.dueDate ? `${formatDate(order.dueDate)} ${dueMark}` : 'No Due Date'
                         });
                     });
                 });
@@ -4376,7 +4363,7 @@ Order Details:
                     let status = '✅';
                     let statusClass = 'status-success';
                     
-                    if (row.DueDate && row.DueDate !== '2026-01-01 ⚠️') {
+                    if (row.DueDate && row.DueDate !== 'No Due Date' && row.DueDate !== '2026-01-01 ⚠️') {
                         const dueDate = new Date(row.DueDate);
                         const runEnd = new Date(row.RunEnd);
                         

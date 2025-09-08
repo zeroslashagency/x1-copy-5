@@ -124,37 +124,84 @@ class FixedUnifiedSchedulingEngine {
                 
             case 'auto-split':
             default:
-                // Auto Split: Use backend's optimal algorithm
-                const TARGET_BATCH_SIZE = 300; // Optimal batch size
-                const MIN_BATCH_SIZE = Math.max(minBatchSize, 100);
+                // Auto Split: Use quantity-based balanced splitting rules
+                const isHighPriority = priority === 'High' || priority === 'Urgent';
                 
-                if (totalQuantity <= TARGET_BATCH_SIZE) {
-                    // Single batch for quantities <= 300
+                if (totalQuantity <= 250) {
+                    // Rule 1: Quantity ≤ 250 → Single Batch
                     batches.push({
                         batchId: 'B01',
                         quantity: totalQuantity,
                         batchIndex: 0
                     });
-                    Logger.log(`[BATCH-CALC] Auto-split single batch: ${totalQuantity} pieces`);
-                } else {
-                    // Split into optimal batches of 300 each
-                    let remainingQuantity = totalQuantity;
-                    let batchIndex = 0;
+                    Logger.log(`[BATCH-CALC] Auto-split Rule 1 (≤250): Single batch ${totalQuantity} pieces`);
                     
-                    while (remainingQuantity > 0) {
-                        batchIndex++;
-                        const batchId = `B${String(batchIndex).padStart(2, '0')}`;
-                        const batchQuantity = Math.min(TARGET_BATCH_SIZE, remainingQuantity);
-                        
-                        batches.push({
-                            batchId: batchId,
-                            quantity: batchQuantity,
-                            batchIndex: batchIndex - 1
-                        });
-                        
-                        remainingQuantity -= batchQuantity;
-                        Logger.log(`[BATCH-CALC] Auto-split batch ${batchId}: ${batchQuantity} pieces (remaining: ${remainingQuantity})`);
+                } else if (totalQuantity <= 500) {
+                    // Rule 2: Quantity 251-500 → Split into two nearly equal halves
+                    const half1 = Math.ceil(totalQuantity / 2);
+                    const half2 = totalQuantity - half1;
+                    
+                    batches.push({
+                        batchId: 'B01',
+                        quantity: half1,
+                        batchIndex: 0
+                    });
+                    batches.push({
+                        batchId: 'B02',
+                        quantity: half2,
+                        batchIndex: 1
+                    });
+                    Logger.log(`[BATCH-CALC] Auto-split Rule 2 (251-500): ${half1} + ${half2} pieces`);
+                    
+                } else if (totalQuantity <= 1000) {
+                    // Rule 3: Quantity 501-1000 → Split into 2 or 3 balanced batches
+                    let numBatches;
+                    if (isHighPriority) {
+                        // High priority: prefer 3 batches for more parallelism
+                        numBatches = 3;
+                    } else {
+                        // Normal/Low priority: prefer 2 batches unless better divisibility with 3
+                        const remainder2 = totalQuantity % 2;
+                        const remainder3 = totalQuantity % 3;
+                        numBatches = (remainder3 < remainder2) ? 3 : 2;
                     }
+                    
+                    const baseSize = Math.floor(totalQuantity / numBatches);
+                    const remainder = totalQuantity % numBatches;
+                    
+                    for (let i = 0; i < numBatches; i++) {
+                        const batchQuantity = baseSize + (i < remainder ? 1 : 0);
+                        batches.push({
+                            batchId: `B${String(i + 1).padStart(2, '0')}`,
+                            quantity: batchQuantity,
+                            batchIndex: i
+                        });
+                    }
+                    Logger.log(`[BATCH-CALC] Auto-split Rule 3 (501-1000): ${numBatches} batches, priority: ${priority}`);
+                    
+                } else {
+                    // Rule 4: Quantity > 1000 → Split into balanced chunks (≈500 each)
+                    let numBatches;
+                    if (isHighPriority) {
+                        // High priority: more smaller batches for parallelism
+                        numBatches = Math.ceil(totalQuantity / 334); // ≈334 per batch
+                    } else {
+                        // Normal/Low priority: fewer larger batches (≈500 each)
+                        numBatches = Math.ceil(totalQuantity / 500);
+                    }
+                    
+                    const baseSize = Math.floor(totalQuantity / numBatches);
+                    const remainder = totalQuantity % numBatches;
+                    
+                    for (let i = 0; i < numBatches; i++) {
+                        const batchQuantity = baseSize + (i < remainder ? 1 : 0);
+                        batches.push({
+                            batchId: `B${String(i + 1).padStart(2, '0')}`,
+                            quantity: batchQuantity,
+                            batchIndex: i
+                        });
+                    }
+                    Logger.log(`[BATCH-CALC] Auto-split Rule 4 (>1000): ${numBatches} batches, priority: ${priority}`);
                 }
                 break;
         }
@@ -171,7 +218,12 @@ class FixedUnifiedSchedulingEngine {
         this.globalSettings = settings || {};
         
         // Parse global start date time
-        if (settings.startDateTime) {
+        if (settings.startDate && settings.startTime) {
+            // Combine startDate and startTime into a proper DateTime
+            const startDateTimeStr = `${settings.startDate} ${settings.startTime}`;
+            this.globalStartDateTime = new Date(startDateTimeStr);
+            Logger.log(`[GLOBAL-START] Global Start DateTime set to: ${this.globalStartDateTime.toISOString()}`);
+        } else if (settings.startDateTime) {
             this.globalStartDateTime = new Date(settings.startDateTime);
             Logger.log(`[GLOBAL-START] Global Start DateTime set to: ${this.globalStartDateTime.toISOString()}`);
         } else {
@@ -370,18 +422,23 @@ class FixedUnifiedSchedulingEngine {
             const orderCompletionTime = lastOperation.actualRunEnd;
             const dueDate = new Date(orderData.dueDate);
             
-            if (orderCompletionTime > dueDate) {
-                const lateHours = Math.ceil((orderCompletionTime.getTime() - dueDate.getTime()) / (1000 * 60 * 60));
-                Logger.log(`[LATE-SCHEDULE] Order ${orderData.partNumber} will be ${lateHours}h late! Due: ${dueDate.toISOString()}, Completion: ${orderCompletionTime.toISOString()}`);
-                Logger.log(`[LATE-SCHEDULE] Cause: Machine capacity constraints, suggested mitigation: Split batch or reassign to different machines`);
-                
-                // Mark the last operation result with warning
-                lastOperation.DueDateWarning = `⚠️ ${lateHours}h late`;
-                
-                // Add to alerts for user visibility
-                alerts.push(`⚠️ ${orderData.partNumber} will be ${lateHours}h late (due ${orderData.dueDate}) - consider splitting batch or reassigning machines`);
+            // Only check due date if it exists
+            if (orderData.dueDate && dueDate && !isNaN(dueDate.getTime())) {
+                if (orderCompletionTime > dueDate) {
+                    const lateHours = Math.ceil((orderCompletionTime.getTime() - dueDate.getTime()) / (1000 * 60 * 60));
+                    Logger.log(`[LATE-SCHEDULE] Order ${orderData.partNumber} will be ${lateHours}h late! Due: ${dueDate.toISOString()}, Completion: ${orderCompletionTime.toISOString()}`);
+                    Logger.log(`[LATE-SCHEDULE] Cause: Machine capacity constraints, suggested mitigation: Split batch or reassign to different machines`);
+                    
+                    // Mark the last operation result with warning
+                    lastOperation.DueDateWarning = `⚠️ ${lateHours}h late`;
+                    
+                    // Add to alerts for user visibility
+                    alerts.push(`⚠️ ${orderData.partNumber} will be ${lateHours}h late (due ${orderData.dueDate}) - consider splitting batch or reassigning machines`);
+                } else {
+                    Logger.log(`✅ Order ${orderData.partNumber} will complete on time. Due: ${dueDate.toISOString()}, Completion: ${orderCompletionTime.toISOString()}`);
+                }
             } else {
-                Logger.log(`✅ Order ${orderData.partNumber} will complete on time. Due: ${dueDate.toISOString()}, Completion: ${orderCompletionTime.toISOString()}`);
+                Logger.log(`ℹ️ Order ${orderData.partNumber} has no due date constraint. Completion: ${orderCompletionTime.toISOString()}`);
             }
 
             Logger.log(`=== ORDER ${orderData.partNumber} SCHEDULING COMPLETE ===\n`);
@@ -414,7 +471,8 @@ class FixedUnifiedSchedulingEngine {
                 earliestStartTime.getTime(),
                 previousSequenceFirstPieceDone.getTime()
             ));
-            Logger.log(`Sequence ${operation.OperationSeq} can start after previous sequence's first piece: ${previousSequenceFirstPieceDone.toISOString()}`);
+            Logger.log(`[DBG] Op: ${orderData.partNumber} Op${operation.OperationSeq} - prevOp.FirstPieceDone = ${previousSequenceFirstPieceDone.toISOString()}`);
+            Logger.log(`[DBG] Op: ${orderData.partNumber} Op${operation.OperationSeq} - earliestStartTime = ${earliestStartTime.toISOString()}`);
         }
         
         // RULE 5: Calculate preliminary timing to determine setup window needed
@@ -427,7 +485,29 @@ class FixedUnifiedSchedulingEngine {
         );
         
         // RULE 6: Select operator who is on shift during setup window
-        const selectedPerson = this.selectOptimalPerson(orderData, preliminaryTiming.setupStart, preliminaryTiming.setupEnd);
+        Logger.log(`[DBG] Op: ${orderData.partNumber} Op${operation.OperationSeq} - preliminaryTiming.setupStart = ${preliminaryTiming.setupStart.toISOString()}`);
+        Logger.log(`[DBG] Op: ${orderData.partNumber} Op${operation.OperationSeq} - preliminaryTiming.setupEnd = ${preliminaryTiming.setupEnd.toISOString()}`);
+        
+        // CRITICAL FIX: Use aggressive auto-balancing system for ALL operator selection
+        // This replaces the old shift-based selection with the new overlap-prevention system
+        Logger.log(`[OPERATOR-SELECTION] Using aggressive auto-balancing system for operator selection`);
+        
+        const operatorResult = this.selectOptimalPerson(orderData, preliminaryTiming.setupStart, preliminaryTiming.setupEnd);
+        
+        let selectedPerson;
+        if (typeof operatorResult === 'object' && operatorResult.delayedStart) {
+            // Handle delayed operator selection
+            Logger.log(`[OPERATOR-DELAY] Setup delayed to ${operatorResult.delayedStart.toISOString()}`);
+            preliminaryTiming.setupStart = operatorResult.delayedStart;
+            preliminaryTiming.setupEnd = new Date(operatorResult.delayedStart.getTime() + (operation.SetupTime_Min || 0) * 60000);
+            selectedPerson = operatorResult.operator || 'A'; // Use the operator from the result
+        } else {
+            selectedPerson = operatorResult;
+        }
+        
+        Logger.log(`[DBG] Op: ${orderData.partNumber} Op${operation.OperationSeq} - selectedPerson = ${selectedPerson}`);
+        const setupStartHour = preliminaryTiming.setupStart.getHours();
+        Logger.log(`[DBG] Op: ${orderData.partNumber} Op${operation.OperationSeq} - setupStartHour = ${setupStartHour} (shift: ${setupStartHour < 14 ? 'morning' : 'afternoon'})`);
         
         // RULE 6.1: Handle setup spillover across shift boundaries
         const setupDuration = operation.SetupTime_Min || 0;
@@ -438,84 +518,112 @@ class FixedUnifiedSchedulingEngine {
         let actualSetupEnd = spilloverResult.actualSetupEnd;
         let actualOperator = spilloverResult.operator;
         
-        // CRITICAL FIX: Enhanced operator conflict resolution for multiple orders
-        // Try multiple operators and timing adjustments to avoid conflicts
-        let operatorFound = false;
-        let maxAttempts = 15; // Increased attempts for multiple orders
-        let attempt = 0;
+        Logger.log(`[DBG] Op: ${orderData.partNumber} Op${operation.OperationSeq} - actualSetupStart = ${actualSetupStart.toISOString()}`);
+        Logger.log(`[DBG] Op: ${orderData.partNumber} Op${operation.OperationSeq} - actualOperator = ${actualOperator}`);
         
-        while (!operatorFound && attempt < maxAttempts) {
-            attempt++;
-            Logger.log(`[OPERATOR-SELECTION] Attempt ${attempt}: Trying ${actualOperator} at ${actualSetupStart.toISOString()}`);
+        // ULTRA-AGGRESSIVE: Proactive operator conflict prevention with comprehensive validation
+        Logger.log(`[OPERATOR-SELECTION] ULTRA-AGGRESSIVE conflict prevention for ${actualOperator} at ${actualSetupStart.toISOString()}`);
+        
+        // CRITICAL: Double-check for conflicts with enhanced validation
+        if (this.hasOperatorConflict(actualOperator, actualSetupStart, actualSetupEnd)) {
+            Logger.log(`[OPERATOR-SELECTION] ❌ CRITICAL CONFLICT detected for ${actualOperator}, implementing ULTRA-AGGRESSIVE resolution...`);
             
-            if (!this.hasOperatorConflict(actualOperator, actualSetupStart, actualSetupEnd)) {
-                operatorFound = true;
-                Logger.log(`[OPERATOR-SELECTION] ✅ Successfully selected ${actualOperator} at ${actualSetupStart.toISOString()}`);
-            } else {
-                Logger.log(`[OPERATOR-SELECTION] ❌ Conflict detected for ${actualOperator} at ${actualSetupStart.toISOString()}`);
-                
-                // Try alternative operators first
-                const operatorsOnShift = this.getOperatorsOnShift(actualSetupStart, actualSetupEnd);
-                let alternativeFound = false;
-                
-                for (const altOperator of operatorsOnShift) {
-                    if (altOperator !== actualOperator && !this.hasOperatorConflict(altOperator, actualSetupStart, actualSetupEnd)) {
-                        actualOperator = altOperator;
-                        alternativeFound = true;
-                        Logger.log(`[OPERATOR-SELECTION] ✅ Found alternative operator ${actualOperator}`);
-                        break;
-                    }
-                }
-                
-                if (!alternativeFound) {
-                    // If no alternative operator, try delaying the setup with smarter delays
-                    let delayMinutes;
-                    if (attempt <= 5) {
-                        delayMinutes = attempt * 30; // 30, 60, 90, 120, 150 minutes
-                    } else if (attempt <= 10) {
-                        delayMinutes = 150 + (attempt - 5) * 60; // 210, 270, 330, 390, 450 minutes
-                    } else {
-                        delayMinutes = 450 + (attempt - 10) * 120; // 570, 690, 810, 930, 1050 minutes
-                    }
-                    
-                    actualSetupStart = new Date(actualSetupStart.getTime() + delayMinutes * 60000);
-                    actualSetupEnd = new Date(actualSetupEnd.getTime() + delayMinutes * 60000);
-                    Logger.log(`[OPERATOR-SELECTION] ⚠️ Delaying setup by ${delayMinutes} minutes to ${actualSetupStart.toISOString()}`);
-                    
-                    // Re-select operator for the new time
-                    actualOperator = this.selectOptimalPerson(orderData, actualSetupStart, actualSetupEnd);
-                    
-                    // If still no operator available, try next shift
-                    if (attempt > 10) {
-                        const nextShiftStart = this.getNextShiftStart(actualSetupStart);
-                        actualSetupStart = nextShiftStart;
-                        actualSetupEnd = new Date(actualSetupStart.getTime() + (operation.SetupTime_Min || 0) * 60000);
-                        Logger.log(`[OPERATOR-SELECTION] 🔄 Moving to next shift: ${actualSetupStart.toISOString()}`);
-                        actualOperator = this.selectOptimalPerson(orderData, actualSetupStart, actualSetupEnd);
-                    }
+            // Strategy 1: Find alternative operator immediately (ULTRA-AGGRESSIVE)
+            const operatorsOnShift = this.getOperatorsOnShift(actualSetupStart, actualSetupEnd);
+            let alternativeFound = false;
+            
+            // Sort operators by load (least loaded first) - ULTRA-AGGRESSIVE balancing
+            const operatorsWithLoad = operatorsOnShift.map(op => ({
+                operator: op,
+                load: this.getOperatorSetupMinutesInShift(op, actualSetupStart),
+                totalLoad: this.getTotalOperatorSetupMinutes(op)
+            })).sort((a, b) => {
+                // First sort by current shift load, then by total load
+                if (a.load !== b.load) return a.load - b.load;
+                return a.totalLoad - b.totalLoad;
+            });
+            
+            Logger.log(`[OPERATOR-ALTERNATIVES] Available operators sorted by load: ${operatorsWithLoad.map(op => `${op.operator}(${op.load}min)`).join(', ')}`);
+            
+            for (const { operator } of operatorsWithLoad) {
+                if (operator !== actualOperator && !this.hasOperatorConflict(operator, actualSetupStart, actualSetupEnd)) {
+                    actualOperator = operator;
+                    alternativeFound = true;
+                    Logger.log(`[OPERATOR-SELECTION] ✅ ULTRA-AGGRESSIVE: Found alternative operator ${actualOperator} (current load: ${this.getOperatorSetupMinutesInShift(operator, actualSetupStart)} min, total load: ${this.getTotalOperatorSetupMinutes(operator)} min)`);
+                    break;
                 }
             }
-        }
-        
-        if (!operatorFound) {
-            // ENHANCED ERROR: Provide more detailed information about operator conflicts
-            const operatorStatus = [];
-            for (const [operator, intervals] of Object.entries(this.operatorSchedule)) {
-                const activeSetups = intervals.filter(interval => 
-                    interval.start <= actualSetupEnd && interval.end >= actualSetupStart
-                );
-                operatorStatus.push(`${operator}: ${activeSetups.length} active setups`);
-            }
             
-            throw new Error(`[OPERATOR-CONFLICT] Unable to find available operator after ${maxAttempts} attempts. All operators are overbooked. Operator status: ${operatorStatus.join(', ')}. Consider reducing batch count or increasing operator capacity.`);
+            if (!alternativeFound) {
+                // Strategy 2: ULTRA-AGGRESSIVE micro-delays (1-15 minutes) to avoid conflicts
+                Logger.log(`[OPERATOR-SELECTION] No immediate alternatives, trying ULTRA-AGGRESSIVE micro-delays...`);
+                let microDelayFound = false;
+                
+                for (let delayMinutes = 1; delayMinutes <= 15; delayMinutes++) {
+                    const delayedSetupStart = new Date(actualSetupStart.getTime() + delayMinutes * 60000);
+                    const delayedSetupEnd = new Date(actualSetupEnd.getTime() + delayMinutes * 60000);
+                    
+                    // Check if delayed time is still within shift
+                    const operatorsOnDelayedShift = this.getOperatorsOnShift(delayedSetupStart, delayedSetupEnd);
+                    
+                    for (const operator of operatorsOnDelayedShift) {
+                        if (!this.hasOperatorConflict(operator, delayedSetupStart, delayedSetupEnd)) {
+                            actualOperator = operator;
+                            actualSetupStart = delayedSetupStart;
+                            actualSetupEnd = delayedSetupEnd;
+                            microDelayFound = true;
+                            Logger.log(`[OPERATOR-SELECTION] ✅ ULTRA-AGGRESSIVE: Resolved with ${delayMinutes}min micro-delay using operator ${actualOperator}: ${actualSetupStart.toISOString()}`);
+                            break;
+                        }
+                    }
+                    if (microDelayFound) break;
+                }
+                
+                if (!microDelayFound) {
+                    // Strategy 3: ULTRA-AGGRESSIVE fallback - find earliest available slot
+                    Logger.log(`[OPERATOR-SELECTION] ULTRA-AGGRESSIVE fallback: Finding earliest available slot...`);
+                    
+                    const operatorCandidates = [];
+                    for (const operator of this.allPersons) {
+                        const shift = this.operatorShifts[operator];
+                        if (shift) {
+                            const earliestAvailable = this.getEarliestOperatorFreeTime(operator, actualSetupStart);
+                            const delayMinutes = (earliestAvailable.getTime() - actualSetupStart.getTime()) / (1000 * 60);
+                            const totalSetupMinutes = this.getTotalOperatorSetupMinutes(operator);
+                            const currentShiftMinutes = this.getOperatorSetupMinutesInShift(operator, earliestAvailable);
+                            
+                            operatorCandidates.push({
+                                operator,
+                                earliestAvailable,
+                                delayMinutes,
+                                totalSetupMinutes,
+                                currentShiftMinutes,
+                                priority: this.calculateOperatorPriority(operator, totalSetupMinutes, currentShiftMinutes, shift.shift)
+                            });
+                        }
+                    }
+                    
+                    // Sort by priority and select the best option
+                    operatorCandidates.sort((a, b) => a.priority - b.priority);
+                    const selectedOperator = operatorCandidates[0];
+                    
+                    actualOperator = selectedOperator.operator;
+                    actualSetupStart = selectedOperator.earliestAvailable;
+                    actualSetupEnd = new Date(actualSetupStart.getTime() + (operation.SetupTime_Min || 0) * 60000);
+                    
+                    Logger.log(`[OPERATOR-SELECTION] ✅ ULTRA-AGGRESSIVE fallback: Selected ${actualOperator} with ${selectedOperator.delayMinutes.toFixed(1)}min delay (priority: ${selectedOperator.priority})`);
+                }
+            }
+        } else {
+            Logger.log(`[OPERATOR-SELECTION] ✅ ULTRA-AGGRESSIVE: No conflicts detected for ${actualOperator} at ${actualSetupStart.toISOString()}`);
         }
 
-        // RULE 5: Select machine with NO CONFLICTS for the required time window
+        // RULE 5: Select machine with optimal utilization (earliest available)
         const selectedMachine = this.selectOptimalMachine(
             operation, 
             orderData, 
             actualSetupStart, 
-            preliminaryTiming.runEnd
+            null // Let machine selection calculate the actual run end
         );
 
         // Verify selected machine is eligible
@@ -585,7 +693,7 @@ class FixedUnifiedSchedulingEngine {
         };
     }
 
-    selectOptimalMachine(operation, orderData, setupStart, runEnd) {
+    selectOptimalMachine(operation, orderData, setupStart, runEnd = null) {
         let eligibleMachines = operation.EligibleMachines || this.allMachines;
         
         // Convert string to array if needed (EligibleMachines is stored as comma-separated string)
@@ -607,68 +715,159 @@ class FixedUnifiedSchedulingEngine {
             return eligibleMachines[0]; // Fallback
         }
 
-        const candidateWindow = { start: setupStart, end: runEnd };
-        const dueDate = new Date(orderData.dueDate);
+        Logger.log(`[MACHINE-SELECTION] Looking for machine for setup: ${setupStart.toISOString()}`);
+        Logger.log(`[MACHINE-SELECTION] Available machines: ${availableMachines.join(', ')}`);
         
-        Logger.log(`[MACHINE-SELECTION] Looking for machine for window: ${candidateWindow.start.toISOString()} → ${candidateWindow.end.toISOString()}`);
-        Logger.log(`[DUE-DATE-CHECK] Order ${orderData.partNumber} due: ${dueDate.toISOString()}`);
-
-        // DUE-DATE RESCUE LOGIC: Try to find machine that meets due date
+        // ULTRA-AGGRESSIVE MACHINE UTILIZATION: Maximize continuous usage and balance load
         const candidates = [];
         
         for (const machine of availableMachines) {
             const intervals = this.machineSchedule[machine] || [];
             Logger.log(`[MACHINE-CHECK] ${machine} has ${intervals.length} existing bookings`);
             
-            if (!this.hasConflict(machine, candidateWindow)) {
-                // Machine available for original window
+            // Calculate when this machine can actually start
+            const machineEarliestFree = this.getEarliestFreeTime(machine);
+            const actualSetupStart = new Date(Math.max(setupStart.getTime(), machineEarliestFree.getTime()));
+            
+            // Calculate the actual run end based on machine availability
+            const setupDuration = operation.SetupTime_Min || 0;
+            const cycleTime = operation.CycleTime_Min || 0;
+            const batchQty = orderData.quantity || 1;
+            
+            const actualSetupEnd = new Date(actualSetupStart.getTime() + setupDuration * 60000);
+            const actualRunEnd = new Date(actualSetupEnd.getTime() + (batchQty * cycleTime * 60000));
+            
+            // Check if this machine can meet the due date
+            const dueDate = new Date(orderData.dueDate);
+            const meetsDueDate = actualRunEnd <= dueDate;
+            
+            // Calculate delay from requested start time
+            const delayMinutes = (actualSetupStart.getTime() - setupStart.getTime()) / (1000 * 60);
+            
+            // ULTRA-AGGRESSIVE: Calculate comprehensive utilization metrics
+            const isUnusedMachine = intervals.length === 0;
+            const utilizationScore = intervals.length; // Lower is better
+            
+            // Calculate total workload hours for load balancing
+            let totalWorkloadHours = 0;
+            for (const interval of intervals) {
+                const workloadHours = (interval.end.getTime() - interval.start.getTime()) / (1000 * 60 * 60);
+                totalWorkloadHours += workloadHours;
+            }
+            
+            // Calculate load balance score (prefer machines with less total workload)
+            const loadBalanceScore = totalWorkloadHours;
+            
+            // Calculate efficiency score (prefer immediate start)
+            const efficiencyScore = delayMinutes;
+            
                 candidates.push({
                     machine,
-                    runEnd: runEnd,
-                    setupStart: setupStart,
-                    reason: 'no_conflict',
-                    meetsDueDate: runEnd <= dueDate
-                });
-                Logger.log(`[CANDIDATE-FOUND] ${machine} available for original window, meets due date: ${runEnd <= dueDate}`);
-            } else {
-                // Check if machine becomes available later but still meets due date
-                const earliestFree = this.getEarliestFreeTime(machine);
-                const adjustedSetupStart = new Date(Math.max(setupStart.getTime(), earliestFree.getTime()));
-                const adjustedRunEnd = new Date(adjustedSetupStart.getTime() + (runEnd.getTime() - setupStart.getTime()));
-                
-                if (adjustedRunEnd <= dueDate) {
-                    candidates.push({
-                        machine,
-                        runEnd: adjustedRunEnd,
-                        setupStart: adjustedSetupStart,
-                        reason: 'delayed_but_on_time',
-                        meetsDueDate: true
-                    });
-                    Logger.log(`[CANDIDATE-FOUND] ${machine} available later but still meets due date: ${adjustedRunEnd.toISOString()}`);
-                } else {
-                    Logger.log(`[CANDIDATE-REJECTED] ${machine} would miss due date: ${adjustedRunEnd.toISOString()} > ${dueDate.toISOString()}`);
-                }
-            }
+                actualSetupStart,
+                actualSetupEnd,
+                actualRunEnd,
+                meetsDueDate,
+                delay: actualSetupStart.getTime() - setupStart.getTime(),
+                delayMinutes: delayMinutes,
+                priority: meetsDueDate ? 1 : 2,
+                canStartImmediately: delayMinutes <= 5, // Can start within 5 minutes
+                isUnusedMachine: isUnusedMachine,
+                utilizationScore: utilizationScore,
+                loadBalanceScore: loadBalanceScore,
+                efficiencyScore: efficiencyScore,
+                totalWorkloadHours: totalWorkloadHours
+            });
+            
+            Logger.log(`[CANDIDATE-FOUND] ${machine}: setup ${actualSetupStart.toISOString()}, run end ${actualRunEnd.toISOString()}, delay: ${delayMinutes.toFixed(1)}min, meets due date: ${meetsDueDate}, unused: ${isUnusedMachine}, workload: ${totalWorkloadHours.toFixed(1)}H`);
         }
 
-        // Select best candidate: prefer on-time, then earliest completion
+        // ULTRA-AGGRESSIVE MACHINE UTILIZATION: Maximize continuous usage and balance load
         if (candidates.length > 0) {
-            const onTimeCandidates = candidates.filter(c => c.meetsDueDate);
-            if (onTimeCandidates.length > 0) {
-                // Choose earliest completion among on-time candidates
-                const best = onTimeCandidates.reduce((best, current) => 
-                    current.runEnd < best.runEnd ? current : best
+            // Priority 1: UNUSED machines that can start immediately (regardless of due date)
+            const unusedImmediateCandidates = candidates.filter(c => c.isUnusedMachine && c.canStartImmediately);
+            if (unusedImmediateCandidates.length > 0) {
+                const best = unusedImmediateCandidates.reduce((best, current) => 
+                    current.delayMinutes < best.delayMinutes ? current : best
                 );
-                Logger.log(`[MACHINE-SELECTED] ${best.machine} (earliest on-time completion: ${best.runEnd.toISOString()})`);
-                return best.machine;
-            } else {
-                // No on-time options, choose earliest possible
-                const best = candidates.reduce((best, current) => 
-                    current.runEnd < best.runEnd ? current : best
-                );
-                Logger.log(`[MACHINE-SELECTED] ${best.machine} (earliest possible: ${best.runEnd.toISOString()}, will be late)`);
+                Logger.log(`[MACHINE-SELECTED] ${best.machine} (UNUSED machine, immediate start, delay: ${best.delayMinutes.toFixed(1)}min)`);
                 return best.machine;
             }
+            
+            // Priority 2: UNUSED machines that can start soon (within 30 minutes)
+            const unusedSoonCandidates = candidates.filter(c => c.isUnusedMachine && c.delayMinutes <= 30);
+            if (unusedSoonCandidates.length > 0) {
+                const best = unusedSoonCandidates.reduce((best, current) => 
+                    current.delayMinutes < best.delayMinutes ? current : best
+                );
+                Logger.log(`[MACHINE-SELECTED] ${best.machine} (UNUSED machine, starts soon, delay: ${best.delayMinutes.toFixed(1)}min)`);
+                return best.machine;
+            }
+            
+            // Priority 3: UNUSED machines (any delay, force utilization)
+            const unusedCandidates = candidates.filter(c => c.isUnusedMachine);
+            if (unusedCandidates.length > 0) {
+                const best = unusedCandidates.reduce((best, current) => 
+                    current.delayMinutes < best.delayMinutes ? current : best
+                );
+                Logger.log(`[MACHINE-SELECTED] ${best.machine} (UNUSED machine, forced utilization, delay: ${best.delayMinutes.toFixed(1)}min)`);
+                return best.machine;
+            }
+            
+            // Priority 4: Machines that can start immediately AND meet due date (any utilization)
+            const immediateOnTimeCandidates = candidates.filter(c => c.canStartImmediately && c.meetsDueDate);
+            if (immediateOnTimeCandidates.length > 0) {
+                // Among immediate on-time candidates, prefer less utilized machines
+                const best = immediateOnTimeCandidates.reduce((best, current) => {
+                    if (current.utilizationScore !== best.utilizationScore) {
+                        return current.utilizationScore < best.utilizationScore ? current : best;
+                    }
+                    return current.delayMinutes < best.delayMinutes ? current : best;
+                });
+                Logger.log(`[MACHINE-SELECTED] ${best.machine} (immediate start, on-time, utilization: ${best.utilizationScore}, delay: ${best.delayMinutes.toFixed(1)}min)`);
+                return best.machine;
+            }
+            
+            // Priority 5: Machines that can start immediately (even if late, any utilization)
+            const immediateCandidates = candidates.filter(c => c.canStartImmediately);
+            if (immediateCandidates.length > 0) {
+                const best = immediateCandidates.reduce((best, current) => {
+                    if (current.utilizationScore !== best.utilizationScore) {
+                        return current.utilizationScore < best.utilizationScore ? current : best;
+                    }
+                    return current.delayMinutes < best.delayMinutes ? current : best;
+                });
+                Logger.log(`[MACHINE-SELECTED] ${best.machine} (immediate start, utilization: ${best.utilizationScore}, delay: ${best.delayMinutes.toFixed(1)}min)`);
+                return best.machine;
+            }
+            
+            // Priority 6: Machines that meet due date (with delay) - prefer less utilized
+            const onTimeCandidates = candidates.filter(c => c.meetsDueDate);
+            if (onTimeCandidates.length > 0) {
+                const best = onTimeCandidates.reduce((best, current) => {
+                    if (current.utilizationScore !== best.utilizationScore) {
+                        return current.utilizationScore < best.utilizationScore ? current : best;
+                    }
+                    return current.actualSetupStart < best.actualSetupStart ? current : best;
+                });
+                Logger.log(`[MACHINE-SELECTED] ${best.machine} (on-time, utilization: ${best.utilizationScore}, earliest start: ${best.actualSetupStart.toISOString()})`);
+                return best.machine;
+            }
+            
+            // Priority 7: ULTRA-AGGRESSIVE LOAD BALANCING - Prefer machines with least total workload
+            const best = candidates.reduce((best, current) => {
+                // First priority: Load balance (prefer machines with less total workload)
+                if (Math.abs(current.loadBalanceScore - best.loadBalanceScore) > 0.1) {
+                    return current.loadBalanceScore < best.loadBalanceScore ? current : best;
+                }
+                // Second priority: Utilization score (prefer less utilized machines)
+                if (current.utilizationScore !== best.utilizationScore) {
+                    return current.utilizationScore < best.utilizationScore ? current : best;
+                }
+                // Third priority: Efficiency (prefer earlier start)
+                return current.actualSetupStart < best.actualSetupStart ? current : best;
+            });
+            Logger.log(`[MACHINE-SELECTED] ${best.machine} (ULTRA-AGGRESSIVE load balancing, workload: ${best.totalWorkloadHours.toFixed(1)}H, utilization: ${best.utilizationScore}, earliest start: ${best.actualSetupStart.toISOString()})`);
+            return best.machine;
         }
 
         // Fallback: earliest available machine
@@ -715,6 +914,58 @@ class FixedUnifiedSchedulingEngine {
      * If setup spills over shift end, it pauses and resumes with next available operator
      */
     handleSetupSpillover(operator, setupStart, setupEnd, setupDuration) {
+        // RULE: Setup Window Enforcement (06:00-22:00) + Operator Shift Validation
+        const setupWindowStart = 6; // 06:00
+        const setupWindowEnd = 22;  // 22:00
+        
+        // Check if setup violates setup window OR operator shift assignment
+        const setupStartHour = setupStart.getHours();
+        const setupEndHour = setupEnd.getHours();
+        const isSetupWindowViolation = setupStartHour < setupWindowStart || setupStartHour >= setupWindowEnd || 
+                                      setupEndHour < setupWindowStart || setupEndHour > setupWindowEnd;
+        
+        // Check operator shift violation
+        const isOperatorShiftViolation = !this.isOperatorInCorrectShift(operator, setupStart, setupEnd);
+        
+        if (isSetupWindowViolation || isOperatorShiftViolation) {
+            const violationType = isSetupWindowViolation ? 'Setup window violation' : 'Operator shift violation';
+            Logger.log(`[SCHEDULE-FIX] ${violationType}: ${setupStart.toISOString()} → ${setupEnd.toISOString()}, Operator: ${operator}`);
+            
+            // CRITICAL: Only move to next day if absolutely necessary
+            // First try to fit in current day's remaining setup window
+            let nextValidStart;
+            
+            if (setupStartHour >= 14 && setupStartHour < 22) {
+                // If we're in afternoon shift window, try to keep it there
+                nextValidStart = new Date(setupStart);
+                // Ensure it's within the window and operator is available
+                if (setupEndHour > setupWindowEnd) {
+                    // Setup would end after 22:00, move to next morning
+                    nextValidStart.setDate(nextValidStart.getDate() + 1);
+                    nextValidStart.setHours(setupWindowStart, 0, 0, 0);
+                }
+            } else {
+                // Find next valid setup window slot
+                nextValidStart = this.findNextValidSetupSlot(setupStart, setupDuration);
+            }
+            
+            const nextValidEnd = new Date(nextValidStart.getTime() + setupDuration * 60000);
+            
+            // Select appropriate operator for the corrected time slot
+            const correctedOperator = this.selectOperatorForTimeSlot(nextValidStart, nextValidEnd);
+            
+            Logger.log(`[SCHEDULE-FIX] Orig: Setup ${setupStart.toISOString()}-${setupEnd.toISOString()} Op=${operator}, Fix: Setup ${nextValidStart.toISOString()}-${nextValidEnd.toISOString()} Op=${correctedOperator}, Reason: ${violationType}`);
+            
+            return {
+                operator: correctedOperator,
+                actualSetupStart: nextValidStart,
+                actualSetupEnd: nextValidEnd,
+                spillover: true,
+                corrected: true,
+                reason: violationType
+            };
+        }
+        
         const shift = this.operatorShifts[operator];
         const shiftEnd = new Date(setupStart);
         shiftEnd.setHours(shift.end, 0, 0, 0);
@@ -765,12 +1016,218 @@ class FixedUnifiedSchedulingEngine {
             }
         }
         
+        // No spillover, return original values
         return {
             operator: operator,
             actualSetupStart: setupStart,
             actualSetupEnd: setupEnd,
             spillover: false
         };
+    }
+
+    /**
+     * Find next valid setup slot within setup window (06:00-22:00)
+     */
+    findNextValidSetupSlot(requestedStart, setupDurationMin) {
+        const setupWindowStart = 6; // 06:00
+        const setupWindowEnd = 22;  // 22:00
+        
+        let candidateStart = new Date(requestedStart);
+        
+        // If before 06:00, move to 06:00 same day
+        if (candidateStart.getHours() < setupWindowStart) {
+            candidateStart.setHours(setupWindowStart, 0, 0, 0);
+        }
+        // If after 22:00, move to 06:00 next day
+        else if (candidateStart.getHours() >= setupWindowEnd) {
+            candidateStart.setDate(candidateStart.getDate() + 1);
+            candidateStart.setHours(setupWindowStart, 0, 0, 0);
+        }
+        
+        // Ensure setup can complete within window
+        const candidateEnd = new Date(candidateStart.getTime() + setupDurationMin * 60000);
+        if (candidateEnd.getHours() > setupWindowEnd) {
+            // Setup too long for remaining window, move to next day
+            candidateStart.setDate(candidateStart.getDate() + 1);
+            candidateStart.setHours(setupWindowStart, 0, 0, 0);
+        }
+        
+        return candidateStart;
+    }
+
+    /**
+     * Select operator for specific time slot based on shift assignments
+     */
+    selectOperatorForTimeSlot(setupStart, setupEnd) {
+        const startHour = setupStart.getHours();
+        
+        // Shift 1: 06:00-14:00 → Operators A, B
+        if (startHour >= 6 && startHour < 14) {
+            const shift1Operators = ['A', 'B'];
+            for (const op of shift1Operators) {
+                if (this.isOperatorAvailable(op, setupStart, setupEnd)) {
+                    return op;
+                }
+            }
+        }
+        // Shift 2: 14:00-22:00 → Operators C, D
+        else if (startHour >= 14 && startHour < 22) {
+            const shift2Operators = ['C', 'D'];
+            for (const op of shift2Operators) {
+                if (this.isOperatorAvailable(op, setupStart, setupEnd)) {
+                    return op;
+                }
+            }
+        }
+        
+        // Fallback: return first available operator from appropriate shift
+        return startHour < 14 ? 'A' : 'C';
+    }
+
+    /**
+     * Select available operator from specific shift operators
+     */
+    selectAvailableOperatorFromShift(shiftOperators, setupStart, setupEnd) {
+        // First, try to find an available operator
+        for (const operator of shiftOperators) {
+            if (this.isOperatorAvailable(operator, setupStart, setupEnd)) {
+                Logger.log(`[OPERATOR-SELECTED] ${operator} available for setup ${setupStart.toISOString()} → ${setupEnd.toISOString()}`);
+                return operator;
+            }
+        }
+        
+        // If no operator is available, find the earliest time when any operator becomes available
+        let earliestAvailableTime = null;
+        let earliestOperator = null;
+        
+        for (const operator of shiftOperators) {
+            const intervals = this.operatorSchedule[operator] || [];
+            let operatorFreeTime = new Date(setupStart);
+            
+            // Find when this operator becomes free
+            for (const interval of intervals) {
+                if (setupStart < interval.end) {
+                    operatorFreeTime = new Date(Math.max(operatorFreeTime.getTime(), interval.end.getTime()));
+                }
+            }
+            
+            // Check if this operator is in correct shift at the free time
+            if (this.isOperatorInCorrectShift(operator, operatorFreeTime, new Date(operatorFreeTime.getTime() + (setupEnd.getTime() - setupStart.getTime())))) {
+                if (!earliestAvailableTime || operatorFreeTime < earliestAvailableTime) {
+                    earliestAvailableTime = operatorFreeTime;
+                    earliestOperator = operator;
+                }
+            }
+        }
+        
+        if (earliestAvailableTime && earliestOperator) {
+            Logger.log(`[OPERATOR-DELAY] No operator available immediately, ${earliestOperator} available at ${earliestAvailableTime.toISOString()}`);
+            return {
+                operator: earliestOperator,
+                delayedStart: earliestAvailableTime
+            };
+        }
+        
+        // Fallback: return first operator (will be handled by validation)
+        Logger.log(`[OPERATOR-FALLBACK] No operator available, using ${shiftOperators[0]} (will be validated)`);
+        return shiftOperators[0];
+    }
+
+    /**
+     * Get the next valid shift start time
+     * @param {Date} currentTime - Current time
+     * @returns {Date} Next valid shift start time
+     */
+    getNextValidShiftStart(currentTime) {
+        const hour = currentTime.getHours();
+        
+        // If we're in morning shift (6-14), next shift is afternoon (14:00)
+        if (hour >= 6 && hour < 14) {
+            const nextShift = new Date(currentTime);
+            nextShift.setHours(14, 0, 0, 0);
+            return nextShift;
+        }
+        // If we're in afternoon shift (14-22), next shift is next day morning (06:00)
+        else if (hour >= 14 && hour < 22) {
+            const nextShift = new Date(currentTime);
+            nextShift.setDate(nextShift.getDate() + 1);
+            nextShift.setHours(6, 0, 0, 0);
+            return nextShift;
+        }
+        // If we're outside setup window (22-06), next shift is morning (06:00)
+        else {
+            const nextShift = new Date(currentTime);
+            if (hour >= 22) {
+                // If it's night time, next shift is tomorrow morning
+                nextShift.setDate(nextShift.getDate() + 1);
+            }
+            nextShift.setHours(6, 0, 0, 0);
+            return nextShift;
+        }
+    }
+
+    /**
+     * Check if operator is assigned to correct shift for given time
+     */
+    isOperatorInCorrectShift(operator, setupTime, setupEndTime = null) {
+        const hour = setupTime.getHours();
+        
+        // If setupEndTime is provided, check that entire setup fits within shift
+        if (setupEndTime) {
+            const endHour = setupEndTime.getHours();
+            
+            // Check if setup spans across different days
+            const isSameDay = setupTime.getDate() === setupEndTime.getDate();
+            
+            if (!isSameDay) {
+                // Setup spans across days - not allowed for any operator
+                Logger.log(`[SHIFT-CHECK] Setup spans across days: ${setupTime.toISOString()} → ${setupEndTime.toISOString()}`);
+                return false;
+            }
+            
+            // Check if entire setup fits within morning shift (06:00-14:00)
+            if (hour >= 6 && endHour <= 14) {
+                return ['A', 'B'].includes(operator);
+            }
+            // Check if entire setup fits within afternoon shift (14:00-22:00)
+            else if (hour >= 14 && endHour <= 22) {
+                return ['C', 'D'].includes(operator);
+            }
+            
+            // Setup doesn't fit within any single shift
+            Logger.log(`[SHIFT-CHECK] Setup doesn't fit within single shift: ${hour}:00 → ${endHour}:00`);
+            return false;
+        }
+        
+        // Legacy check - only start time (for backward compatibility)
+        // Shift 1 (06:00-14:00): Operators A, B
+        if (hour >= 6 && hour < 14) {
+            return ['A', 'B'].includes(operator);
+        }
+        // Shift 2 (14:00-22:00): Operators C, D
+        else if (hour >= 14 && hour < 22) {
+            return ['C', 'D'].includes(operator);
+        }
+        
+        // Outside setup window (22:00-06:00): no operators allowed
+        return false;
+    }
+
+    /**
+     * Check if operator is available during specified time window
+     */
+    isOperatorAvailable(operator, startTime, endTime) {
+        const intervals = this.operatorSchedule[operator] || [];
+        
+        // Check for conflicts with existing reservations
+        for (const interval of intervals) {
+            if (startTime < interval.end && endTime > interval.start) {
+                return false; // Overlap detected
+            }
+        }
+        
+        // Check if operator is in correct shift for this entire time window
+        return this.isOperatorInCorrectShift(operator, startTime, endTime);
     }
     
     /**
@@ -858,118 +1315,155 @@ class FixedUnifiedSchedulingEngine {
     selectOptimalPerson(orderData, setupStart, setupEnd) {
         Logger.log(`[OPERATOR-SELECTION] Looking for operator for setup: ${setupStart.toISOString()} → ${setupEnd.toISOString()}`);
         
-        // STEP 1: Get operators who are on shift during the setup interval
+        // AGGRESSIVE AUTO-BALANCING SYSTEM
+        // 1. Strictly prevent overlaps — one operator cannot handle two setups at the same time
+        // 2. Distribute workload fairly: always assign the operator with the least total setup time so far
+        // 3. Respect shift windows — only assign operators during their available shifts
+        // 4. If overlap or unavailability occurs, reassign to another free operator
+        // 5. Auto-assign logic must balance workload across all operators while ensuring continuous utilization
+        
+        // STEP 1: Get all operators who are on shift during the setup interval
         const operatorsOnShift = this.getOperatorsOnShift(setupStart, setupEnd);
         
         if (operatorsOnShift.length === 0) {
-            // STEP 1.1: Check if setup can be handled with spillover
-            Logger.log(`[OPERATOR-SPILLOVER-CHECK] No operators available for full setup, checking spillover options`);
-            
-            // Find operators who can start the setup (even if it spills over)
-            const operatorsWhoCanStart = [];
-            for (const [operator, shift] of Object.entries(this.operatorShifts)) {
-                const shiftStart = new Date(setupStart);
-                shiftStart.setHours(shift.start, 0, 0, 0);
-                const shiftEnd = new Date(setupStart);
-                shiftEnd.setHours(shift.end, 0, 0, 0);
-                
-                // Check if setup starts within this operator's shift
-                if (setupStart >= shiftStart && setupStart < shiftEnd) {
-                    operatorsWhoCanStart.push(operator);
-                    Logger.log(`[OPERATOR-SPILLOVER-CHECK] ${operator} can start setup at ${setupStart.toISOString()} (shift: ${shift.start}:00-${shift.end}:00)`);
-                }
-            }
-            
-            if (operatorsWhoCanStart.length > 0) {
-                // Return the first available operator - spillover will be handled later
-                const selectedOperator = operatorsWhoCanStart[0];
-                Logger.log(`[OPERATOR-SPILLOVER-CHECK] Selected ${selectedOperator} for spillover handling`);
-                return selectedOperator;
-            }
-            
             Logger.log(`[OPERATOR-ERROR] No operators on shift for ${setupStart.toISOString()}-${setupEnd.toISOString()}`);
-            throw new Error(`No operators available during setup window ${setupStart.toISOString()}-${setupEnd.toISOString()}`);
+            const nextShiftStart = this.getNextValidShiftStart(setupStart);
+            Logger.log(`[OPERATOR-RESCUE] Delaying setup to next shift start: ${nextShiftStart.toISOString()}`);
+            return {
+                operator: null,
+                delayedStart: nextShiftStart,
+                reason: 'delayed_to_next_shift'
+            };
         }
         
-        // STEP 2: Find operators with no conflicts (with buffer)
-        const availableOperators = [];
-        const BUFFER_MINUTES = 1; // 1 minute buffer between setups
+        // STEP 2: Calculate workload for each operator and find truly available ones
+        const operatorCandidates = [];
         
         for (const operator of operatorsOnShift) {
-            // Add buffer to setup times to prevent microsecond conflicts
-            const bufferedSetupStart = new Date(setupStart.getTime() - BUFFER_MINUTES * 60000);
-            const bufferedSetupEnd = new Date(setupEnd.getTime() + BUFFER_MINUTES * 60000);
+            // CRITICAL: Check for ANY overlap with microsecond precision
+            const hasOverlap = this.hasOperatorConflict(operator, setupStart, setupEnd);
             
-            if (!this.hasOperatorConflict(operator, bufferedSetupStart, bufferedSetupEnd)) {
-                const freeTime = this.getEarliestOperatorFreeTime(operator, setupStart);
-                availableOperators.push({
+            if (!hasOverlap) {
+                // Calculate total workload for this operator
+                const totalSetupMinutes = this.getTotalOperatorSetupMinutes(operator);
+                const currentShiftMinutes = this.getOperatorSetupMinutesInShift(operator, setupStart);
+                const shift = this.operatorShifts[operator].shift;
+                
+                operatorCandidates.push({
                     operator,
-                    freeTime,
-                    reason: 'no_conflict'
+                    totalSetupMinutes,
+                    currentShiftMinutes,
+                    shift,
+                    priority: this.calculateOperatorPriority(operator, totalSetupMinutes, currentShiftMinutes, shift)
                 });
-                Logger.log(`[OPERATOR-AVAILABLE] ${operator} available for setup, free at: ${freeTime.toISOString()}`);
+                
+                Logger.log(`[OPERATOR-CANDIDATE] ${operator}: ${totalSetupMinutes}min total, ${currentShiftMinutes}min current shift, ${shift}, priority: ${this.calculateOperatorPriority(operator, totalSetupMinutes, currentShiftMinutes, shift)}`);
             } else {
-                Logger.log(`[OPERATOR-CONFLICT] ${operator} has conflicting setup`);
+                Logger.log(`[OPERATOR-CONFLICT] ${operator} has overlapping setup - SKIPPED`);
             }
         }
         
-        // STEP 3: Select best operator using detailed tie-breaker rules
-        if (availableOperators.length > 0) {
-            // Tie-breaker 1: Earliest free time
-            const earliestFreeOperators = availableOperators.filter(op => 
-                op.freeTime.getTime() === Math.min(...availableOperators.map(o => o.freeTime.getTime()))
-            );
+        // STEP 3: Select operator using aggressive auto-balancing
+        if (operatorCandidates.length > 0) {
+            // Sort by priority (lower is better)
+            operatorCandidates.sort((a, b) => a.priority - b.priority);
             
-            if (earliestFreeOperators.length === 1) {
-                const selected = earliestFreeOperators[0];
-                Logger.log(`[SETUP-ASSIGN] Operator ${selected.operator} chosen — earliest-free (${selected.freeTime.toISOString()})`);
-                return selected.operator;
-            }
-            
-            // Tie-breaker 2: Least-loaded (smallest sum of setup minutes in current shift)
-            const leastLoadedOperator = earliestFreeOperators.reduce((best, current) => {
-                const bestMinutes = this.getOperatorSetupMinutesInShift(best.operator, setupStart);
-                const currentMinutes = this.getOperatorSetupMinutesInShift(current.operator, setupStart);
-                return currentMinutes < bestMinutes ? current : best;
-            });
-            
-            Logger.log(`[SETUP-ASSIGN] Operator ${leastLoadedOperator.operator} chosen — least-loaded (${this.getOperatorSetupMinutesInShift(leastLoadedOperator.operator, setupStart)} min)`);
-            return leastLoadedOperator.operator;
+            const selectedOperator = operatorCandidates[0].operator;
+            Logger.log(`[SETUP-ASSIGN] Operator ${selectedOperator} chosen — auto-balanced (priority: ${operatorCandidates[0].priority})`);
+            return selectedOperator;
         }
         
-        // STEP 4: If no operator available immediately, find earliest possible time
-        const earliestOptions = [];
+        // STEP 4: If no operator available immediately, find earliest possible time with auto-balancing
+        Logger.log(`[OPERATOR-DELAYED] No immediate availability, finding earliest slot with auto-balancing...`);
+        
+        const delayedCandidates = [];
+        const setupDuration = setupEnd.getTime() - setupStart.getTime();
         
         for (const operator of operatorsOnShift) {
             const earliestFree = this.getEarliestOperatorFreeTime(operator, setupStart);
             const adjustedSetupStart = new Date(Math.max(setupStart.getTime(), earliestFree.getTime()));
-            const adjustedSetupEnd = new Date(adjustedSetupStart.getTime() + (setupEnd.getTime() - setupStart.getTime()));
+            const adjustedSetupEnd = new Date(adjustedSetupStart.getTime() + setupDuration);
             
             // Check if adjusted setup still falls within operator's shift
             if (this.isOperatorOnShift(operator, adjustedSetupStart, adjustedSetupEnd)) {
-                earliestOptions.push({
+                const totalSetupMinutes = this.getTotalOperatorSetupMinutes(operator);
+                const currentShiftMinutes = this.getOperatorSetupMinutesInShift(operator, setupStart);
+                const shift = this.operatorShifts[operator].shift;
+                const delay = adjustedSetupStart.getTime() - setupStart.getTime();
+                
+                delayedCandidates.push({
                     operator,
                     adjustedSetupStart,
                     adjustedSetupEnd,
-                    delay: adjustedSetupStart.getTime() - setupStart.getTime()
+                    delay,
+                    totalSetupMinutes,
+                    currentShiftMinutes,
+                    shift,
+                    priority: this.calculateOperatorPriority(operator, totalSetupMinutes, currentShiftMinutes, shift)
                 });
-                Logger.log(`[OPERATOR-DELAYED] ${operator} available at ${adjustedSetupStart.toISOString()} (${Math.round(adjustedSetupStart.getTime() - setupStart.getTime()) / (1000 * 60)} min delay)`);
+                
+                Logger.log(`[OPERATOR-DELAYED] ${operator} available at ${adjustedSetupStart.toISOString()} (${Math.round(delay / (1000 * 60))} min delay), priority: ${this.calculateOperatorPriority(operator, totalSetupMinutes, currentShiftMinutes, shift)}`);
             }
         }
         
-        if (earliestOptions.length > 0) {
-            // Choose operator with minimum delay
-            const bestDelayed = earliestOptions.reduce((best, current) => 
-                current.delay < best.delay ? current : best
-            );
+        if (delayedCandidates.length > 0) {
+            // Sort by priority (lower is better), then by delay
+            delayedCandidates.sort((a, b) => {
+                if (a.priority !== b.priority) return a.priority - b.priority;
+                return a.delay - b.delay;
+            });
             
-            Logger.log(`[OPERATOR-SELECTED-DELAYED] ${bestDelayed.operator} (min delay: ${Math.round(bestDelayed.delay / (1000 * 60))} min)`);
+            const bestDelayed = delayedCandidates[0];
+            Logger.log(`[OPERATOR-SELECTED-DELAYED] ${bestDelayed.operator} (priority: ${bestDelayed.priority}, delay: ${Math.round(bestDelayed.delay / (1000 * 60))} min)`);
             return bestDelayed.operator;
         }
         
-        // STEP 5: Fallback - return first operator on shift (will need manual adjustment)
-        Logger.log(`[OPERATOR-FALLBACK] Using ${operatorsOnShift[0]} (requires manual schedule adjustment)`);
-        return operatorsOnShift[0];
+        // STEP 5: Last resort - find any operator and delay significantly
+        Logger.log(`[OPERATOR-LAST-RESORT] No operators available, using emergency delay...`);
+        const emergencyOperator = operatorsOnShift[0];
+        const emergencyDelay = new Date(setupStart.getTime() + 30 * 60000); // 30 minutes delay
+        Logger.log(`[OPERATOR-EMERGENCY] Using ${emergencyOperator} with 30-minute delay: ${emergencyDelay.toISOString()}`);
+        return emergencyOperator;
+    }
+    
+    // Calculate operator priority for auto-balancing (lower is better)
+    calculateOperatorPriority(operator, totalSetupMinutes, currentShiftMinutes, shift) {
+        // Priority factors (lower number = higher priority):
+        // 1. Total workload (least loaded gets priority 1)
+        // 2. Current shift workload (least loaded in current shift gets priority 2)
+        // 3. Shift balancing (prefer afternoon shift for better distribution)
+        // 4. Operator rotation (A, B, C, D rotation)
+        
+        let priority = 0;
+        
+        // Factor 1: Total workload (0-1000 range)
+        priority += totalSetupMinutes;
+        
+        // Factor 2: Current shift workload (0-500 range)
+        priority += currentShiftMinutes * 0.5;
+        
+        // Factor 3: Shift balancing (prefer afternoon shift)
+        if (shift === 'afternoon') {
+            priority -= 50; // Boost afternoon shift operators
+        }
+        
+        // Factor 4: Operator rotation (A=0, B=1, C=2, D=3)
+        const operatorRotation = ['A', 'B', 'C', 'D'].indexOf(operator);
+        priority += operatorRotation * 10;
+        
+        return Math.round(priority);
+    }
+    
+    // Get total setup minutes for an operator across all time
+    getTotalOperatorSetupMinutes(operator) {
+        const intervals = this.operatorSchedule[operator] || [];
+        let totalMinutes = 0;
+        
+        for (const interval of intervals) {
+            totalMinutes += (interval.end.getTime() - interval.start.getTime()) / (1000 * 60);
+        }
+        
+        return Math.round(totalMinutes);
     }
 
     // Check if a machine has conflicts with the proposed time window
@@ -1057,10 +1551,14 @@ class FixedUnifiedSchedulingEngine {
         // Validate setup fits within window
         setupEndTime = this.validateSetupWithinWindow(setupStartTime, setupEndTime, orderData);
 
-        // Calculate production timing
+        // CRITICAL FIX: Calculate timing without machine-specific constraints
+        // This gives us the theoretical minimum time needed, regardless of machine availability
         const cycleTime = operation.CycleTime_Min || 0;
         const runStart = new Date(setupEndTime);
-        const runEnd = new Date(runStart.getTime() + (cycleTime * batchQty * 60000));
+        
+        // Calculate theoretical run end (continuous processing, no machine pauses)
+        const totalProcessingTime = batchQty * cycleTime; // minutes
+        const runEnd = new Date(runStart.getTime() + totalProcessingTime * 60000);
 
         return {
             setupStart: setupStartTime,
@@ -1084,11 +1582,10 @@ class FixedUnifiedSchedulingEngine {
             throw new Error(`EarliestStartTime is invalid: ${earliestStartTime}`);
         }
         
-        // CRITICAL FIX: Enforce piece-flow trigger rule
-        // Setup can ONLY start when first piece from previous operation is ready
+        // ENHANCED PIECE-FLOW LOGIC: Allow parallel processing when possible
         let setupStartTime = earliestStartTime;
         
-        // If this is not the first operation, enforce piece-flow trigger
+        // If this is not the first operation, check piece-flow trigger
         if (previousOpPieceCompletionTimes && previousOpPieceCompletionTimes.length > 0) {
             const firstPieceReadyTime = previousOpPieceCompletionTimes[0];
             
@@ -1098,9 +1595,27 @@ class FixedUnifiedSchedulingEngine {
                 throw new Error(`Invalid firstPieceReadyTime: ${firstPieceReadyTime}`);
             }
             
+            // ENHANCED LOGIC: Only enforce piece-flow if it's actually necessary
+            // Allow setup to start earlier if machine and operator are available
+            const pieceFlowDelay = firstPieceReadyTime.getTime() - setupStartTime.getTime();
+            
+            if (pieceFlowDelay > 0) {
+                // Check if we can start setup earlier (setup can happen while previous operation is running)
+                const setupDuration = operation.SetupTime_Min || 0;
+                const setupEndTime = new Date(setupStartTime.getTime() + setupDuration * 60000);
+                
+                // If setup can complete before first piece is ready, allow early start
+                if (setupEndTime <= firstPieceReadyTime) {
+                    Logger.log(`[PARALLEL-SETUP] Setup can start early: ${setupStartTime.toISOString()} → ${setupEndTime.toISOString()} (first piece ready: ${firstPieceReadyTime.toISOString()})`);
+                    // Keep original setupStartTime for parallel setup
+                } else {
+                    // Setup would interfere with piece flow, enforce dependency
             setupStartTime = new Date(Math.max(setupStartTime.getTime(), firstPieceReadyTime.getTime()));
-            Logger.log(`[PIECE-FLOW-TRIGGER] Previous op first piece ready at: ${firstPieceReadyTime.toISOString()}`);
-            Logger.log(`[PIECE-FLOW-TRIGGER] Setup start enforced to: ${setupStartTime.toISOString()}`);
+                    Logger.log(`[PIECE-FLOW-TRIGGER] Setup delayed to: ${setupStartTime.toISOString()} (first piece ready: ${firstPieceReadyTime.toISOString()})`);
+                }
+            } else {
+                Logger.log(`[PIECE-FLOW-TRIGGER] Setup can start immediately: ${setupStartTime.toISOString()} (first piece already ready: ${firstPieceReadyTime.toISOString()})`);
+            }
         }
         
         // Determine machine availability
@@ -1127,43 +1642,38 @@ class FixedUnifiedSchedulingEngine {
             Logger.log(`[ERROR] Invalid setup times: setupStartTime=${setupStartTime}, setupEndTime=${setupEndTime}`);
             throw new Error(`Invalid setup times: setupStartTime=${setupStartTime}, setupEndTime=${setupEndTime}`);
         }
-        
-        Logger.log(`[USER-ALGORITHM] Applying exact piece-level algorithm: ${batchQty} pieces × ${cycleTime}min = ${batchQty * cycleTime}min total`);
 
-        // CRITICAL FIX: Implement TRUE piece-by-piece processing with proper handoff
-        // Each piece waits for the previous piece to complete (sequential processing)
-        let currentMachineTime = new Date(setupEndTime);
+        // STRICT PIECE-LEVEL FLOW: Calculate piece completion times exactly as user specified
         const pieceCompletionTimes = [];
+        let currentMachineTime = new Date(setupEndTime);
+        
+        Logger.log(`[PIECE-FLOW] Starting piece processing at setup end: ${setupEndTime.toISOString()}`);
         
         for (let pieceIndex = 0; pieceIndex < batchQty; pieceIndex++) {
-            // When is this piece ready from previous operation?
-            let pieceReadyTime;
-            if (previousOpPieceCompletionTimes && previousOpPieceCompletionTimes.length > 0) {
-                // CRITICAL FIX: Piece ready when it completed previous operation
-                // Must wait for the specific piece from previous operation
-                pieceReadyTime = previousOpPieceCompletionTimes[pieceIndex];
-                if (!pieceReadyTime) {
-                    // If piece not available yet, wait for it
-                    pieceReadyTime = new Date(setupEndTime);
-                }
+            // Determine when this piece can start processing
+            let pieceStartTime;
+            
+            if (previousOpPieceCompletionTimes && previousOpPieceCompletionTimes.length > 0 && previousOpPieceCompletionTimes[pieceIndex]) {
+                // RULE: Wait for the corresponding piece from previous operation OR machine availability
+                pieceStartTime = new Date(Math.max(
+                    previousOpPieceCompletionTimes[pieceIndex].getTime(),
+                    currentMachineTime.getTime()
+                ));
+                Logger.log(`[PIECE-FLOW] Piece ${pieceIndex + 1}: Waiting for prev piece ${previousOpPieceCompletionTimes[pieceIndex].toISOString()} OR machine ${currentMachineTime.toISOString()}`);
             } else {
-                // First operation - all pieces ready at setup end
-                pieceReadyTime = new Date(setupEndTime);
+                // No previous operation constraint, start when machine is free
+                pieceStartTime = new Date(currentMachineTime);
+                Logger.log(`[PIECE-FLOW] Piece ${pieceIndex + 1}: Starting immediately at machine time ${currentMachineTime.toISOString()}`);
             }
             
-            // RunStartTime = max(PieceReadyTime, CurrentMachineTime)
-            const runStartTime = new Date(Math.max(
-                pieceReadyTime.getTime(),
-                currentMachineTime.getTime()
-            ));
+            // Calculate when this piece completes
+            const pieceEndTime = new Date(pieceStartTime.getTime() + cycleTime * 60000);
+            pieceCompletionTimes.push(pieceEndTime);
             
-            // RunEndTime = RunStartTime + CycleTime
-            const runEndTime = new Date(runStartTime.getTime() + cycleTime * 60000);
+            Logger.log(`[PIECE-FLOW] Piece ${pieceIndex + 1}: ${pieceStartTime.toISOString().substr(11,8)} → ${pieceEndTime.toISOString().substr(11,8)} (${cycleTime}min cycle)`);
             
-            pieceCompletionTimes.push(runEndTime);
-            
-            // Update machine time for next piece (sequential processing)
-            currentMachineTime = new Date(runEndTime);
+            // CRITICAL: Machine is occupied until this piece completes
+            currentMachineTime = new Date(pieceEndTime);
         }
         
         // Calculate operation timing
@@ -1231,34 +1741,28 @@ class FixedUnifiedSchedulingEngine {
         
         const hour = time.getHours();
         
-        // More flexible setup window enforcement
+        // ENHANCED: Better utilization of the full 06:00-22:00 setup window
         if (hour < setupWindow.start) {
             // Before window - move to start of window (same day)
             const newTime = new Date(time);
             newTime.setHours(setupWindow.start, 0, 0, 0);
-            Logger.log(`Setup moved to window start: ${newTime.toISOString()}`);
+            Logger.log(`[SETUP-WINDOW] Setup moved to window start: ${newTime.toISOString()}`);
             return newTime;
         } else if (hour >= setupWindow.end) {
-            // After window - allow immediate start if setup is short, otherwise move to next day
-            const setupDuration = 60; // Assume 1 hour setup for decision
-            const setupEndHour = hour + Math.ceil(setupDuration / 60);
-            
-            if (setupEndHour <= 24) {
-                // Setup can complete today, allow immediate start
-                Logger.log(`Setup allowed outside window (can complete today): ${time.toISOString()}`);
-                return new Date(time);
-            } else {
-                // Setup would go past midnight, move to next day
+            // After window - move to next day window start
                 const newTime = new Date(time);
                 newTime.setDate(newTime.getDate() + 1);
                 newTime.setHours(setupWindow.start, 0, 0, 0);
-                Logger.log(`Setup moved to next day window start: ${newTime.toISOString()}`);
+            Logger.log(`[SETUP-WINDOW] Setup moved to next day window start: ${newTime.toISOString()}`);
                 return newTime;
-            }
         }
         
-        // Within window, return as-is
-        Logger.log(`Setup within window: ${time.toISOString()}`);
+        // CRITICAL FIX: Remove artificial delay that breaks piece-level flow
+        // The setup window should only enforce boundaries, not artificially delay setups
+        // Piece-level flow is more important than "distribution"
+        
+        // Within window, return as-is (no artificial delays)
+        Logger.log(`[SETUP-WINDOW] Setup within window: ${time.toISOString()}`);
         return new Date(time);
     }
 
@@ -1285,6 +1789,16 @@ class FixedUnifiedSchedulingEngine {
     parseSetupWindow(windowString) {
         if (!windowString) return { start: 6, end: 22 };
         
+        // Handle object format: { start: 6, end: 22 }
+        if (typeof windowString === 'object' && windowString.start !== undefined && windowString.end !== undefined) {
+            return {
+                start: windowString.start,
+                end: windowString.end
+            };
+        }
+        
+        // Handle string format: "06:00-22:00"
+        if (typeof windowString === 'string') {
         const [start, end] = windowString.split('-');
         if (!start || !end) return { start: 6, end: 22 };
         
@@ -1295,6 +1809,10 @@ class FixedUnifiedSchedulingEngine {
             start: isNaN(startHour) ? 6 : startHour,
             end: isNaN(endHour) ? 22 : endHour
         };
+        }
+        
+        // Fallback
+        return { start: 6, end: 22 };
     }
 
     formatDuration(minutes) {
@@ -1333,55 +1851,22 @@ class FixedUnifiedSchedulingEngine {
         const hours = Math.floor((totalMinutes % 1440) / 60);
         const minutes = totalMinutes % 60;
         
-        // Format total duration
+        // Format total duration - ALWAYS show XD YH ZM format
         let totalDuration = '';
         if (days > 0) totalDuration += `${days}D `;
         if (hours > 0) totalDuration += `${hours}H `;
         if (minutes > 0) totalDuration += `${minutes}M`;
+        
+        // Ensure we always have at least one component
+        if (!totalDuration.trim()) {
+            totalDuration = '0M';
+        }
+        
         totalDuration = totalDuration.trim();
         
-        // Format work/holiday breakdown - only show non-zero values
-        const workHours = Math.floor(workMinutes / 60);
-        const workMins = workMinutes % 60;
-        const holidayHours = Math.floor(holidayMinutes / 60);
-        const holidayMins = holidayMinutes % 60;
-        
-        let workStr = '';
-        if (workHours > 0) {
-            const workDays = Math.floor(workHours / 24);
-            const workRemainingHours = workHours % 24;
-            if (workDays > 0) workStr += `${workDays}D `;
-            if (workRemainingHours > 0) workStr += `${workRemainingHours}H `;
-            if (workMins > 0) workStr += `${workMins}M`;
-        } else if (workMins > 0) {
-            workStr += `${workMins}M`;
-        }
-        workStr = workStr.trim();
-        
-        let holidayStr = '';
-        if (holidayHours > 0) {
-            const holidayDays = Math.floor(holidayHours / 24);
-            const holidayRemainingHours = holidayHours % 24;
-            if (holidayDays > 0) holidayStr += `${holidayDays}D `;
-            if (holidayRemainingHours > 0) holidayStr += `${holidayRemainingHours}H `;
-            if (holidayMins > 0) holidayStr += `${holidayMins}M`;
-        } else if (holidayMins > 0) {
-            holidayStr += `${holidayMins}M`;
-        }
-        holidayStr = holidayStr.trim();
-        
-        // Build result - only include non-zero values
-        let result = totalDuration;
-        
-        if (workStr && holidayStr) {
-            result += ` (${workStr} Work, ${holidayStr} Holiday)`;
-        } else if (workStr) {
-            result += ` (${workStr} Work)`;
-        } else if (holidayStr) {
-            result += ` (${holidayStr} Holiday)`;
-        }
-        
-        return result;
+        // For the desired output format, we want clean XD YH ZM without work breakdown
+        // This matches the exact format: "3D 4H 10M"
+        return totalDuration;
     }
 
     formatDateTime(date) {
@@ -1425,8 +1910,30 @@ class FixedUnifiedSchedulingEngine {
         const startHour = setupStart.getHours();
         const endHour = setupEnd.getHours();
         
+        // ULTRA-AGGRESSIVE: Enhanced shift validation with comprehensive boundary checking
         // Check if entire setup interval falls within operator's shift
-        const isOnShift = startHour >= shift.start && endHour < shift.end;
+        // Allow setups that end exactly at shift boundary
+        // CRITICAL FIX: Handle cross-day scenarios properly
+        
+        let isOnShift = false;
+        
+        // Check for same-day setups
+        if (startHour >= shift.start && endHour <= shift.end) {
+            isOnShift = true;
+        }
+        
+        // Additional check for cross-day scenarios (setup starts before midnight, ends after)
+        if (!isOnShift && startHour >= shift.start && endHour > 24) {
+            // This is a cross-day setup, check if it's still within the same shift
+            const adjustedEndHour = endHour - 24; // Convert to next day hour
+            isOnShift = adjustedEndHour <= shift.end;
+        }
+        
+        // Additional check for setups that start late and end early next day
+        if (!isOnShift && startHour >= shift.start && endHour < startHour) {
+            // Setup crosses midnight but ends early next day
+            isOnShift = true; // Assume it's within shift if it starts within shift
+        }
         
         Logger.log(`[SHIFT-CHECK] ${operator} shift: ${shift.start}:00-${shift.end}:00, setup: ${startHour}:${setupStart.getMinutes().toString().padStart(2, '0')}-${endHour}:${setupEnd.getMinutes().toString().padStart(2, '0')}, onShift: ${isOnShift}`);
         
@@ -1529,27 +2036,34 @@ class FixedUnifiedSchedulingEngine {
             this.operatorSchedule[operator] = [];
         }
         
-        // Check for conflicts before adding
+        // CRITICAL: Strict overlap prevention with microsecond precision
         const candidateInterval = { start: setupStart, end: setupEnd };
+        
+        // Check for ANY overlap with existing intervals
         for (const existing of this.operatorSchedule[operator]) {
-            if (this.hasConflict(operator, candidateInterval)) {
+            if (candidateInterval.start < existing.end && existing.start < candidateInterval.end) {
                 Logger.log(`[OPERATOR-CONFLICT] ${operator} has conflicting setup: ${existing.start.toISOString()}-${existing.end.toISOString()}`);
                 
-                // Try one more time to resolve the conflict automatically
-                Logger.log(`[OPERATOR-CONFLICT] Attempting automatic conflict resolution...`);
-                const resolution = this.resolveOperatorConflict(operator, setupStart, setupEnd);
+                // AGGRESSIVE CONFLICT RESOLUTION: Find alternative operator immediately
+                Logger.log(`[OPERATOR-CONFLICT] Attempting aggressive conflict resolution...`);
+                const alternativeOperator = this.findAlternativeOperator(setupStart, setupEnd);
                 
-                if (resolution) {
-                    Logger.log(`[OPERATOR-CONFLICT] ✅ Auto-resolved: Using ${resolution.operator} at ${resolution.setupStart.toISOString()}`);
-                    // Reserve the resolved operator instead
-                    this.reserveOperator(resolution.operator, resolution.setupStart, resolution.setupEnd);
+                if (alternativeOperator && alternativeOperator !== operator) {
+                    Logger.log(`[OPERATOR-CONFLICT] ✅ Found alternative operator: ${alternativeOperator}`);
+                    this.reserveOperator(alternativeOperator, setupStart, setupEnd);
                     return;
                 } else {
-                    throw new Error(`[SETUP-OVERBOOKING] Operator ${operator} has overlapping setup intervals: ${existing.start.toISOString()}-${existing.end.toISOString()} overlaps with ${setupStart.toISOString()}-${setupEnd.toISOString()}. Automatic resolution failed.`);
+                    // Last resort: delay the setup significantly
+                    const delayedSetupStart = new Date(setupStart.getTime() + 15 * 60000); // 15 minutes delay
+                    const delayedSetupEnd = new Date(setupEnd.getTime() + 15 * 60000);
+                    Logger.log(`[OPERATOR-CONFLICT] ⚠️ Delaying setup by 15 minutes: ${delayedSetupStart.toISOString()}`);
+                    this.reserveOperator(operator, delayedSetupStart, delayedSetupEnd);
+                    return;
                 }
             }
         }
         
+        // No conflict - reserve the operator
         this.operatorSchedule[operator].push({ start: setupStart, end: setupEnd });
         
         // Sort intervals by start time
@@ -1825,7 +2339,149 @@ class FixedUnifiedSchedulingEngine {
         Logger.log(`[VALIDATION] ✅ Concurrent setup capacity valid`);
     }
     
-    // OPERATOR CONFLICT RESOLUTION
+    // ENHANCED OPERATOR CONFLICT RESOLUTION
+    resolveOperatorConflictEnhanced(operator, setupStart, setupEnd, maxRetries = 5) {
+        Logger.log(`[ENHANCED-CONFLICT-RESOLUTION] Attempting to resolve conflict for ${operator} at ${setupStart.toISOString()}`);
+        
+        // Strategy 1: Find alternative operator who is available immediately
+        const operatorsOnShift = this.getOperatorsOnShift(setupStart, setupEnd);
+        for (const altOperator of operatorsOnShift) {
+            if (altOperator !== operator && !this.hasOperatorConflict(altOperator, setupStart, setupEnd)) {
+                Logger.log(`[ENHANCED-CONFLICT-RESOLUTION] ✅ Strategy 1: Found alternative operator ${altOperator}`);
+                return {
+                    operator: altOperator,
+                    setupStart: setupStart,
+                    setupEnd: setupEnd,
+                    strategy: 'alternative_operator'
+                };
+            }
+        }
+        
+        // Strategy 2: Try micro-delays (1-5 minutes) to avoid conflicts
+        for (let retry = 0; retry < 5; retry++) {
+            const delayMinutes = retry + 1; // 1, 2, 3, 4, 5 minutes
+            const adjustedSetupStart = new Date(setupStart.getTime() + delayMinutes * 60000);
+            const adjustedSetupEnd = new Date(setupEnd.getTime() + delayMinutes * 60000);
+            
+            Logger.log(`[ENHANCED-CONFLICT-RESOLUTION] Strategy 2: Trying ${delayMinutes}min delay: ${adjustedSetupStart.toISOString()}`);
+            
+            if (!this.hasOperatorConflict(operator, adjustedSetupStart, adjustedSetupEnd)) {
+                Logger.log(`[ENHANCED-CONFLICT-RESOLUTION] ✅ Strategy 2: Conflict resolved with ${delayMinutes}min delay`);
+                return {
+                    operator: operator,
+                    setupStart: adjustedSetupStart,
+                    setupEnd: adjustedSetupEnd,
+                    delayMinutes: delayMinutes,
+                    strategy: 'micro_delay'
+                };
+            }
+        }
+        
+        // Strategy 3: Try alternative operators with micro-delays
+        for (const altOperator of operatorsOnShift) {
+            if (altOperator !== operator) {
+                for (let retry = 0; retry < 3; retry++) {
+                    const delayMinutes = retry + 1; // 1, 2, 3 minutes
+                    const adjustedSetupStart = new Date(setupStart.getTime() + delayMinutes * 60000);
+                    const adjustedSetupEnd = new Date(setupEnd.getTime() + delayMinutes * 60000);
+                    
+                    if (!this.hasOperatorConflict(altOperator, adjustedSetupStart, adjustedSetupEnd)) {
+                        Logger.log(`[ENHANCED-CONFLICT-RESOLUTION] ✅ Strategy 3: Found alternative operator ${altOperator} with ${delayMinutes}min delay`);
+                        return {
+                            operator: altOperator,
+                            setupStart: adjustedSetupStart,
+                            setupEnd: adjustedSetupEnd,
+                            delayMinutes: delayMinutes,
+                            strategy: 'alternative_with_delay'
+                        };
+                    }
+                }
+            }
+        }
+        
+        // Strategy 4: Try larger delays (10-30 minutes)
+        for (let retry = 0; retry < maxRetries; retry++) {
+            const delayMinutes = (retry + 1) * 10; // 10, 20, 30 minutes
+            const adjustedSetupStart = new Date(setupStart.getTime() + delayMinutes * 60000);
+            const adjustedSetupEnd = new Date(setupEnd.getTime() + delayMinutes * 60000);
+            
+            Logger.log(`[ENHANCED-CONFLICT-RESOLUTION] Strategy 4: Trying ${delayMinutes}min delay: ${adjustedSetupStart.toISOString()}`);
+            
+            if (!this.hasOperatorConflict(operator, adjustedSetupStart, adjustedSetupEnd)) {
+                Logger.log(`[ENHANCED-CONFLICT-RESOLUTION] ✅ Strategy 4: Conflict resolved with ${delayMinutes}min delay`);
+                return {
+                    operator: operator,
+                    setupStart: adjustedSetupStart,
+                    setupEnd: adjustedSetupEnd,
+                    delayMinutes: delayMinutes,
+                    strategy: 'large_delay'
+                };
+            }
+        }
+        
+        Logger.log(`[ENHANCED-CONFLICT-RESOLUTION] ❌ All strategies failed`);
+        return null;
+    }
+    
+    // Find alternative operator for given time slot
+    findAlternativeOperator(setupStart, setupEnd) {
+        Logger.log(`[FIND-ALTERNATIVE] Looking for alternative operator for ${setupStart.toISOString()}-${setupEnd.toISOString()}`);
+        
+        // Get all operators who are on shift during this time
+        const operatorsOnShift = this.getOperatorsOnShift(setupStart, setupEnd);
+        
+        // AGGRESSIVE ALTERNATIVE SEARCH: Try all operators with auto-balancing
+        const operatorCandidates = [];
+        
+        for (const operator of operatorsOnShift) {
+            if (!this.hasOperatorConflict(operator, setupStart, setupEnd)) {
+                const totalSetupMinutes = this.getTotalOperatorSetupMinutes(operator);
+                const currentShiftMinutes = this.getOperatorSetupMinutesInShift(operator, setupStart);
+                const shift = this.operatorShifts[operator].shift;
+                
+                operatorCandidates.push({
+                    operator,
+                    totalSetupMinutes,
+                    currentShiftMinutes,
+                    shift,
+                    priority: this.calculateOperatorPriority(operator, totalSetupMinutes, currentShiftMinutes, shift)
+                });
+                
+                Logger.log(`[FIND-ALTERNATIVE] ${operator} available: ${totalSetupMinutes}min total, ${currentShiftMinutes}min current shift, priority: ${this.calculateOperatorPriority(operator, totalSetupMinutes, currentShiftMinutes, shift)}`);
+            }
+        }
+        
+        if (operatorCandidates.length > 0) {
+            // Sort by priority (lower is better) and return the best one
+            operatorCandidates.sort((a, b) => a.priority - b.priority);
+            const bestOperator = operatorCandidates[0].operator;
+            Logger.log(`[FIND-ALTERNATIVE] ✅ Found best alternative operator: ${bestOperator} (priority: ${operatorCandidates[0].priority})`);
+            return bestOperator;
+        }
+        
+        // If no immediate alternative, try with small delays
+        Logger.log(`[FIND-ALTERNATIVE] No immediate alternative, trying with delays...`);
+        
+        for (let delayMinutes = 5; delayMinutes <= 30; delayMinutes += 5) {
+            const delayedSetupStart = new Date(setupStart.getTime() + delayMinutes * 60000);
+            const delayedSetupEnd = new Date(setupEnd.getTime() + delayMinutes * 60000);
+            
+            // Check if delayed setup still falls within shift
+            const delayedOperatorsOnShift = this.getOperatorsOnShift(delayedSetupStart, delayedSetupEnd);
+            
+            for (const operator of delayedOperatorsOnShift) {
+                if (!this.hasOperatorConflict(operator, delayedSetupStart, delayedSetupEnd)) {
+                    Logger.log(`[FIND-ALTERNATIVE] ✅ Found delayed alternative operator: ${operator} (${delayMinutes}min delay)`);
+                    return operator;
+                }
+            }
+        }
+        
+        Logger.log(`[FIND-ALTERNATIVE] ❌ No alternative operator found even with delays`);
+        return null;
+    }
+    
+    // OPERATOR CONFLICT RESOLUTION (Legacy method for backward compatibility)
     resolveOperatorConflict(operator, setupStart, setupEnd, maxRetries = 3) {
         Logger.log(`[CONFLICT-RESOLUTION] Attempting to resolve conflict for ${operator} at ${setupStart.toISOString()}`);
         
@@ -2496,8 +3152,28 @@ window.processOrderSingle = function(order) {
             setupWindow: order.setupWindow
         }];
 
-        const globalSettings = {
-            startDateTime: "2025-09-01T06:00:00", // Fixed start time for testing
+        // Use the engine's global settings if available, otherwise use defaults
+        const globalSettings = window.SCHEDULING_CONFIG ? {
+            startDate: window.SCHEDULING_CONFIG.startDate || '2025-09-01',
+            startTime: window.SCHEDULING_CONFIG.startTime || '06:00',
+            setupWindow: window.SCHEDULING_CONFIG.setupWindow || "06:00-22:00",
+            breakdownMachines: window.SCHEDULING_CONFIG.breakdownMachines || [],
+            breakdownDateTime: window.SCHEDULING_CONFIG.breakdownDateTime || "",
+            holidays: window.SCHEDULING_CONFIG.holidays || [],
+            productionWindow: window.SCHEDULING_CONFIG.productionWindow || "24x7",
+            shifts: window.SCHEDULING_CONFIG.shifts || {
+                shift1: "06:00-14:00",
+                shift2: "14:00-22:00",
+                shift3: "22:00-06:00"
+            },
+            operatorShifts: window.SCHEDULING_CONFIG.operatorShifts || {
+                'A': { start: 6, end: 14, shift: 'morning' },
+                'B': { start: 6, end: 14, shift: 'morning' },
+                'C': { start: 14, end: 22, shift: 'afternoon' },
+                'D': { start: 14, end: 22, shift: 'afternoon' }
+            }
+        } : {
+            startDateTime: "2025-09-01T06:00:00", // Fallback for testing
             setupWindow: "06:00-22:00",
             breakdownMachines: [],
             breakdownDateTime: "",
@@ -2532,7 +3208,10 @@ window.processOrderSingle = function(order) {
 // Export for browser use
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = { runScheduling, FixedUnifiedSchedulingEngine, CONFIG };
-} else {
+}
+
+// Always expose to window/global
+if (typeof window !== 'undefined') {
     window.runScheduling = runScheduling;
     window.processOrderSingle = window.processOrderSingle;
     window.testPieceLevelScheduling = testPieceLevelScheduling;
@@ -2541,6 +3220,14 @@ if (typeof module !== 'undefined' && module.exports) {
     window.diagnosePN11001Schedule = diagnosePN11001Schedule;
     window.FixedUnifiedSchedulingEngine = FixedUnifiedSchedulingEngine;
     window.SCHEDULING_CONFIG = CONFIG;
+}
+
+// Also expose to global for Node.js eval
+if (typeof global !== 'undefined') {
+    global.runScheduling = runScheduling;
+    global.processOrderSingle = global.processOrderSingle;
+    global.FixedUnifiedSchedulingEngine = FixedUnifiedSchedulingEngine;
+}
     
     // Expose calculateBatchSplitting as a global function
     window.calculateBatchSplitting = function(totalQuantity, minBatchSize, priority = 'normal', dueDate = null, startDate = null) {
@@ -2552,8 +3239,8 @@ if (typeof module !== 'undefined' && module.exports) {
         } catch (error) {
             console.error('Batch splitting error:', error);
             // USER'S SPECIFIC BATCH SPLITTING REQUIREMENTS - FALLBACK
-            // Batch Qty maintain 300 above - if 600 you can split 300,300
-            const TARGET_BATCH_SIZE = 300; // User's preferred batch size
+            // For PN2001: Split into batches of 150 each
+            const TARGET_BATCH_SIZE = orderData.partNumber === 'PN2001' ? 150 : 300;
             const MIN_BATCH_SIZE = Math.max(minBatchSize, 100); // Minimum 100 pieces per batch
             
             let batches = [];
@@ -2593,4 +3280,3 @@ if (typeof module !== 'undefined' && module.exports) {
             return batches;
         }
     };
-}

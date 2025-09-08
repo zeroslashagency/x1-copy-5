@@ -3176,7 +3176,7 @@ Order Details:
 
             setTimeout(() => {
                 try {
-                    const single = processOrderSingle(order);
+                    const single = window.processOrderSingle(order);
                     scheduleResults = single; // show only this order
                     displayResults();
                     document.getElementById('exportBtn').disabled = false;
@@ -3189,50 +3189,7 @@ Order Details:
             }, 300);
         }
 
-        // Process a single order using the same pipeline rules
-        function processOrderSingle(order) {
-            const results = [];
-            const alerts = [];
-            const machineSchedule = {}; // Track when each machine is available
-            const operatorSchedule = {}; // Track operator availability per shift
-            const allMachines = ["VMC 1", "VMC 2", "VMC 3", "VMC 4", "VMC 5", "VMC 6", "VMC 7"];
-            allMachines.forEach(m => machineSchedule[m] = getNextShiftStart());
-            ;["A","B","C","D"].forEach(p => operatorSchedule[p] = getNextShiftStart());
-
-            let operations = Array.isArray(order.filteredOperations) ? order.filteredOperations.slice() : [];
-            if (operations.length === 0) {
-                alerts.push(`No filtered operations present for ${order.partNumber}.`);
-                return { rows: results, alerts };
-            }
-            if (order.operationSeq && order.operationSeq !== '') {
-                const selectedSeqs = order.operationSeq.split(',').map(s => parseInt(s.trim()));
-                operations = operations.filter(op => selectedSeqs.includes(op.OperationSeq));
-            }
-
-            const opResults = calculatePieceLevelScheduling(operations, order, machineSchedule, operatorSchedule);
-            opResults.forEach(opResult => {
-                machineSchedule[opResult.Machine] = opResult.actualRunEnd;
-                operatorSchedule[opResult.Person] = opResult.actualRunEnd;
-                results.push({
-                    PartNumber: order.partNumber,
-                    Order_Quantity: order.quantity,
-                    Priority: order.priority,
-                    Batch_ID: `${order.partNumber}-${opResult.OperationSeq}`,
-                    Batch_Qty: order.quantity,
-                    OperationSeq: opResult.OperationSeq,
-                    OperationName: opResult.OperationName,
-                    Machine: opResult.Machine,
-                    Person: opResult.Person,
-                    SetupStart: formatDateTime(opResult.SetupStart),
-                    SetupEnd: formatDateTime(opResult.SetupEnd),
-                    RunStart: formatDateTime(opResult.RunStart),
-                    RunEnd: formatDateTime(opResult.RunEnd),
-                    Timing: opResult.Timing,
-                    DueDate: order.dueDate ? formatDate(order.dueDate) : 'No Due Date'
-                });
-            });
-            return { rows: results, alerts };
-        }
+        // processOrderSingle function removed - now using advanced version from x10-browser.js
 
         async function runSchedule() {
             if (savedOrders.length === 0) {
@@ -3301,6 +3258,9 @@ Order Details:
                             shift3: advancedSettings.shift3
                         }
                     };
+
+                    // Set global SCHEDULING_CONFIG for the engine
+                    window.SCHEDULING_CONFIG = globalSettings;
 
                     // Call the NEW scheduling engine
                     scheduleResults = window.runScheduling(ordersData, globalSettings);
@@ -3380,49 +3340,80 @@ Order Details:
                     console.log(`FINAL OPERATIONS TO PROCESS:`, operations.map(op => `Op ${op.OperationSeq}`));
                 }
 
-                // Batch splitting by priority and due constraints
-                const batches = splitOrderIntoBatches(order);
-                batches.forEach((batch, idx) => {
-                    const batchId = `${order.partNumber}-${idx + 1}`;
-                    const batchOrder = { ...order, quantity: batch.qty };
-                    const operationResults = calculatePieceLevelScheduling(operations, batchOrder, machineSchedule, operatorSchedule);
+                // Use single order - let backend handle batch splitting based on batchMode
+                // Use advanced scheduling engine from x10-browser.js
+                const orderData = {
+                    partNumber: order.partNumber,
+                    quantity: order.quantity,
+                    priority: order.priority,
+                    dueDate: order.dueDate,
+                    operations: operations.map(op => ({
+                        OperationSeq: op.OperationSeq,
+                        OperationName: op.OperationName,
+                        SetupTime_Min: op.SetupTime_Min,
+                        CycleTime_Min: op.CycleTime_Min,
+                        EligibleMachines: op.EligibleMachines,
+                        Minimum_BatchSize: op.Minimum_BatchSize
+                    })),
+                    batchMode: 'auto-split',
+                    breakdownMachine: order.breakdownMachine || 'None',
+                    breakdownDateTime: order.breakdownDateTime || 'None',
+                    holidayRange: order.holidayStart && order.holidayEnd ? `${order.holidayStart},${order.holidayEnd}` : 'None',
+                    setupWindow: order.setupWindow || '06:00-22:00',
+                    startDateTime: order.startDateTime || 'Use Global'
+                };
 
-                    // Determine batch completion and due compliance
-                    const lastOp = operationResults[operationResults.length - 1];
-                    const batchCompletion = lastOp ? lastOp.RunEnd : null;
-                    const due = new Date(order.dueDate);
-                    const isOnTime = batchCompletion ? (new Date(batchCompletion).getTime() <= due.getTime() + (24*60*60*1000 - 1)) : true; // same-day due
-                    const dueMark = isOnTime ? '✅' : '⚠️';
-                    if (order.priority === 'Urgent' && !isOnTime && batchCompletion) {
-                        const lateMs = new Date(batchCompletion).getTime() - due.getTime();
-                        const lateHrs = Math.ceil(lateMs / 3600000);
-                        alerts.push(`High Risk: ${order.partNumber} batch ${idx + 1} expected late by ~${lateHrs}h (due ${formatDate(order.dueDate)}).`);
-                    }
+                const globalSettings = {
+                    startDate: document.getElementById('startDateTime')?.value?.split('T')[0] || '2025-09-01',
+                    startTime: document.getElementById('startDateTime')?.value?.split('T')[1]?.split(':').slice(0,2).join(':') || '06:00',
+                    setupWindow: document.getElementById('setupAvailabilityWindow')?.value || '06:00-22:00',
+                    holidays: getHolidays(),
+                    breakdownMachines: getBreakdownMachines(),
+                    breakdownDateTime: '',
+                    productionWindow: '24x7',
+                    allMachines: ['VMC 1', 'VMC 2', 'VMC 3', 'VMC 4', 'VMC 5', 'VMC 6', 'VMC 7', 'VMC 8', 'VMC 9', 'VMC 10'],
+                    allPersons: ['A', 'B', 'C', 'D'],
+                    shifts: getShifts()
+                };
 
-                    operationResults.forEach(opResult => {
-                        // Update resource schedules at each op
-                        machineSchedule[opResult.Machine] = opResult.actualRunEnd;
-                        operatorSchedule[opResult.Person] = opResult.actualRunEnd;
+                // Set global SCHEDULING_CONFIG for the engine
+                window.SCHEDULING_CONFIG = globalSettings;
 
-                        results.push({
-                            PartNumber: order.partNumber,
-                            Order_Quantity: order.quantity,
-                            Priority: order.priority,
-                            Batch_ID: batchId,
-                            Batch_Qty: batch.qty,
-                            OperationSeq: opResult.OperationSeq,
-                            OperationName: opResult.OperationName,
-                            Machine: opResult.Machine,
-                            Person: opResult.Person,
-                            SetupStart: formatDateTime(opResult.SetupStart),
-                            SetupEnd: formatDateTime(opResult.SetupEnd),
-                            RunStart: formatDateTime(opResult.RunStart),
-                            RunEnd: formatDateTime(opResult.RunEnd),
-                            Timing: opResult.Timing,
-                            DueDate: order.dueDate ? `${formatDate(order.dueDate)} ${dueMark}` : 'No Due Date'
+                // Use the advanced engine for batch processing with aggressive auto-balancing
+                try {
+                    const engineResult = window.runScheduling([orderData], globalSettings);
+                    
+                    if (engineResult && engineResult.rows) {
+                        engineResult.rows.forEach(opResult => {
+                            results.push({
+                                PartNumber: opResult.PartNumber,
+                                Order_Quantity: opResult.Order_Quantity,
+                                Priority: opResult.Priority,
+                                Batch_ID: opResult.Batch_ID,
+                                Batch_Qty: opResult.Batch_Qty,
+                                OperationSeq: opResult.OperationSeq,
+                                OperationName: opResult.OperationName,
+                                Machine: opResult.Machine,
+                                Person: opResult.Person,
+                                SetupStart: formatDateTime(opResult.SetupStart),
+                                SetupEnd: formatDateTime(opResult.SetupEnd),
+                                RunStart: formatDateTime(opResult.RunStart),
+                                RunEnd: formatDateTime(opResult.RunEnd),
+                                Timing: opResult.Timing,
+                                DueDate: opResult.DueDate,
+                                Status: '✅'
+                            });
                         });
-                    });
-                });
+                        
+                        // Add any alerts from the engine
+                        if (engineResult.alerts) {
+                            alerts.push(...engineResult.alerts);
+                        }
+                    }
+                } catch (error) {
+                    console.error('Scheduling engine error:', error.message);
+                    alerts.push(`❌ Scheduling engine error: ${error.message}`);
+                }
             });
 
             return { rows: results, alerts: alerts };
@@ -4073,134 +4064,7 @@ Order Details:
             };
         }
 
-        function calculatePieceLevelScheduling(operations, order, machineSchedule, operatorSchedule) {
-            const results = [];
-            const batchQty = order.quantity;
-            let previousOpPieceCompletionTimes = []; // Track when each piece completes from previous operation
-            
-            // Get order-specific settings
-            const orderSettings = getOrderSettings(order);
-            
-            operations.forEach((operation, opIndex) => {
-                // Select machine and operator for this operation
-                const selectedMachine = selectOptimalMachine(operation, machineSchedule, orderSettings);
-                const selectedOperator = selectOptimalOperator(operatorSchedule, machineSchedule[selectedMachine], orderSettings);
-                
-                // Setup Rule: Setup starts when first piece from previous operation is completed
-                let setupStartTime;
-                if (opIndex === 0) {
-                    // First operation - setup starts based on machine/operator availability
-                    setupStartTime = new Date(Math.max(
-                        machineSchedule[selectedMachine]?.getTime() || 0,
-                        operatorSchedule[selectedOperator]?.getTime() || 0,
-                        new Date('2025-09-01T06:00:00').getTime() // Fixed start time
-                    ));
-                } else {
-                    // Subsequent operations - setup starts when first piece from previous op is done
-                    // CRITICAL FIX: Use the first piece completion time from previous operation
-                    const firstPieceFromPrevOp = previousOpPieceCompletionTimes[0];
-                    setupStartTime = new Date(Math.max(
-                        firstPieceFromPrevOp?.getTime() || 0,
-                        machineSchedule[selectedMachine]?.getTime() || 0,
-                        operatorSchedule[selectedOperator]?.getTime() || 0
-                    ));
-                }
-                
-                // Apply setup window constraints - FIXED: Handle undefined setupWindow
-                let setupStart, setupEnd;
-                try {
-                    const setupSchedule = calculateShiftAwareSchedule(
-                        setupStartTime,
-                        setupStartTime,
-                        operation.SetupTime_Min,
-                        0, // No run time for setup phase
-                        orderSettings
-                    );
-                    setupStart = setupSchedule.setupStart;
-                    setupEnd = setupSchedule.setupEnd;
-                } catch (error) {
-                    console.error('Error in setup scheduling:', error);
-                    // Fallback: simple setup calculation without shift constraints
-                    setupStart = new Date(setupStartTime);
-                    setupEnd = new Date(setupStart.getTime() + operation.SetupTime_Min * 60000);
-                }
-                
-                // Machine becomes available after setup
-                let machineAvailableTime = new Date(setupEnd);
-                
-                // Piece Flow Rule: Process each piece individually
-                const pieceRunTimes = [];
-                const pieceCompletionTimes = [];
-                
-                // CRITICAL FIX: Initialize machine availability for piece processing
-                let currentMachineTime = new Date(setupEnd);
-                
-                for (let pieceIndex = 0; pieceIndex < batchQty; pieceIndex++) {
-                    // When is this piece ready from previous operation?
-                    let pieceReadyTime;
-                    if (opIndex === 0) {
-                        // First operation - all pieces ready at setup end
-                        pieceReadyTime = new Date(setupEnd);
-                    } else {
-                        // Piece ready when it completed previous operation
-                        pieceReadyTime = previousOpPieceCompletionTimes[pieceIndex] || new Date(setupEnd);
-                    }
-                    
-                    // CRITICAL FIX: RunStartTime = max(PieceReadyTime, CurrentMachineTime)
-                    // This ensures pieces are processed sequentially on the machine
-                    const runStartTime = new Date(Math.max(
-                        pieceReadyTime.getTime(),
-                        currentMachineTime.getTime()
-                    ));
-                    
-                    // RunEndTime = RunStartTime + CycleTime
-                    const runEndTime = new Date(runStartTime.getTime() + operation.CycleTime_Min * 60000);
-                    
-                    pieceRunTimes.push({
-                        piece: pieceIndex + 1,
-                        runStart: runStartTime,
-                        runEnd: runEndTime
-                    });
-                    
-                    pieceCompletionTimes.push(runEndTime);
-                    
-                    // CRITICAL FIX: Update machine time for next piece (sequential processing)
-                    currentMachineTime = new Date(runEndTime);
-                }
-                
-                // Operation completion times
-                const firstPieceDone = pieceCompletionTimes[0];
-                const lastPieceDone = pieceCompletionTimes[batchQty - 1];
-                const operationRunStart = pieceRunTimes[0].runStart;
-                const operationRunEnd = lastPieceDone;
-                
-                // Calculate timing description
-                const totalElapsed = (operationRunEnd.getTime() - setupStart.getTime()) / (1000 * 60);
-                const actualWork = operation.SetupTime_Min + (operation.CycleTime_Min * batchQty);
-                const pausedTime = totalElapsed - actualWork;
-                
-                results.push({
-                    OperationSeq: operation.OperationSeq,
-                    OperationName: operation.OperationName,
-                    Machine: selectedMachine,
-                    Person: selectedOperator,
-                    SetupStart: setupStart,
-                    SetupEnd: setupEnd,
-                    RunStart: operationRunStart,
-                    RunEnd: operationRunEnd,
-                    actualRunEnd: operationRunEnd, // For updating schedules
-                    FirstPieceDone: firstPieceDone,
-                    LastPieceDone: lastPieceDone,
-                    PieceDetails: pieceRunTimes,
-                    Timing: `${formatDuration(totalElapsed)} total (${pausedTime > 0 ? formatDuration(pausedTime) + ' paused, ' : ''}${formatDuration(actualWork)} work)`
-                });
-                
-                // Update previous operation piece completion times for next iteration
-                previousOpPieceCompletionTimes = pieceCompletionTimes;
-            });
-            
-            return results;
-        }
+        // calculatePieceLevelScheduling function removed - now using advanced version from x10-browser.js
 
         function getOrderSettings(order) {
             // Get global settings
@@ -4235,112 +4099,9 @@ Order Details:
             return orderSettings;
         }
 
-        function selectOptimalMachine(operation, machineSchedule, orderSettings = null) {
-            let eligibleMachines = operation.EligibleMachines;
-            
-            // Convert string to array if needed (EligibleMachines is stored as comma-separated string)
-            if (typeof eligibleMachines === 'string') {
-                eligibleMachines = eligibleMachines.split(',').map(m => m.trim());
-            }
-            
-            // Filter out breakdown machines (use order-specific or global)
-            const breakdownMachines = orderSettings ? orderSettings.breakdownMachines : getBreakdownMachines();
-            const availableMachines = eligibleMachines.filter(machine => 
-                !breakdownMachines.includes(machine)
-            );
-            
-            if (availableMachines.length === 0) {
-                return eligibleMachines[0]; // Fallback to first eligible if all are broken
-            }
-            
-            // Select machine with earliest availability
-            return availableMachines.reduce((best, current) => {
-                const bestTime = machineSchedule[best] || new Date();
-                const currentTime = machineSchedule[current] || new Date();
-                return currentTime < bestTime ? current : best;
-            });
-        }
+        // selectOptimalMachine function removed - now using advanced engine from x10-browser.js
 
-        function selectOptimalOperator(operatorSchedule, machineStartTime, orderSettings = null) {
-            // Use order-specific shifts or fall back to global
-            const shifts = orderSettings ? orderSettings.shifts : getShifts();
-            
-            // Parse shift times from settings
-            const shift1 = parseShiftTime(shifts.shift1); // 06:00-14:00 -> A, B
-            const shift2 = parseShiftTime(shifts.shift2); // 14:00-22:00 -> C, D
-            const shift3 = parseShiftTime(shifts.shift3); // 22:00-06:00 -> Optional
-            
-            const startTime = new Date(Math.max(machineStartTime.getTime(), Date.now()));
-            
-            // Determine which shift the setup will occur in
-            const hour = startTime.getHours();
-            const minute = startTime.getMinutes();
-            const timeInMinutes = hour * 60 + minute;
-            
-            let availableOperators = [];
-            
-            // Check which shift we're in
-            if (timeInMinutes >= shift1.start && timeInMinutes < shift1.end) {
-                availableOperators = ['A', 'B'];
-            } else if (timeInMinutes >= shift2.start && timeInMinutes < shift2.end) {
-                availableOperators = ['C', 'D'];
-            } else if (shift3.enabled && (timeInMinutes >= shift3.start || timeInMinutes < shift3.end)) {
-                availableOperators = ['A', 'B']; // Fallback to A, B for night shift
-            } else {
-                availableOperators = ['A', 'B']; // Default fallback
-            }
-            
-            // Select operator with earliest availability
-            return availableOperators.reduce((best, current) => {
-                const bestTime = operatorSchedule[best] || new Date();
-                const currentTime = operatorSchedule[current] || new Date();
-                return currentTime < bestTime ? current : best;
-            });
-        }
-
-        function parseShiftTime(shiftString) {
-            const [start, end] = shiftString.split('-');
-            return {
-                start: parseInt(start.split(':')[0]) * 60 + parseInt(start.split(':')[1]),
-                end: parseInt(end.split(':')[0]) * 60 + parseInt(end.split(':')[1])
-            };
-        }
-
-        function parseSetupWindow(windowString) {
-            if (!windowString || typeof windowString !== 'string') {
-                console.error('Invalid setup window string:', windowString);
-                return { start: 6, end: 22 }; // Default fallback
-            }
-            
-            const [start, end] = windowString.split('-');
-            if (!start || !end) {
-                console.error('Invalid setup window format:', windowString);
-                return { start: 6, end: 22 }; // Default fallback
-            }
-            
-            const startParts = start.split(':');
-            const endParts = end.split(':');
-            
-            if (!startParts[0] || !endParts[0]) {
-                console.error('Invalid time format in setup window:', windowString);
-                return { start: 6, end: 22 }; // Default fallback
-            }
-            
-            const startHour = parseInt(startParts[0]);
-            const endHour = parseInt(endParts[0]);
-            
-            if (isNaN(startHour) || isNaN(endHour)) {
-                console.error('Invalid hour values in setup window:', windowString);
-                return { start: 6, end: 22 }; // Default fallback
-            }
-            
-            console.log('Parsed Setup Window:', { start: startHour, end: endHour, original: windowString });
-            
-            return {
-                start: startHour,
-                end: endHour
-            };
-        }
+        // Unused functions removed - now using advanced engine from x10-browser.js
 
         function displayResults() {
             const resultsCard = document.getElementById('resultsCard');

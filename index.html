@@ -4228,10 +4228,19 @@ Order Details:
                 fileInput.type = 'file';
                 fileInput.accept = '.xlsx,.xls';
                 fileInput.style.display = 'none';
+
+                const cleanupFileInput = () => {
+                    if (fileInput.parentNode) {
+                        fileInput.parentNode.removeChild(fileInput);
+                    }
+                };
                 
                 fileInput.onchange = async function(event) {
                     const file = event.target.files[0];
-                    if (!file) return;
+                    if (!file) {
+                        cleanupFileInput();
+                        return;
+                    }
 
                     try {
                         showAlert('Processing Excel file...', 'info');
@@ -4260,13 +4269,14 @@ Order Details:
                     } catch (error) {
                         console.error('Import error:', error);
                         showAlert('Error importing Excel file: ' + error.message, 'error');
+                    } finally {
+                        cleanupFileInput();
                     }
                 };
                 
                 // Trigger file selection
                 document.body.appendChild(fileInput);
                 fileInput.click();
-                document.body.removeChild(fileInput);
                 
             } catch (error) {
                 console.error('Import initialization error:', error);
@@ -4325,27 +4335,82 @@ Order Details:
         function parseExcelData(arrayBuffer, resolve, reject) {
             try {
                 const workbook = XLSX.read(arrayBuffer, { type: 'array' });
-                const sheetName = workbook.SheetNames[0];
+                if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+                    throw new Error('Workbook does not contain any sheets');
+                }
+
+                const normalizeHeaderKey = (header) =>
+                    String(header || '')
+                        .trim()
+                        .toLowerCase()
+                        .replace(/[^a-z0-9]/g, '');
+
+                const findBestSheet = () => {
+                    const requiredHeaders = ['partnumber', 'operationseq'];
+
+                    for (const name of workbook.SheetNames) {
+                        const worksheet = workbook.Sheets[name];
+                        const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false });
+                        const firstRow = rows[0] || [];
+                        const normalizedHeaders = firstRow.map(normalizeHeaderKey);
+                        const hasRequiredHeaders = requiredHeaders.every((required) =>
+                            normalizedHeaders.includes(required)
+                        );
+
+                        if (hasRequiredHeaders) return name;
+                    }
+
+                    return workbook.SheetNames[0];
+                };
+
+                const sheetName = findBestSheet();
                 const worksheet = workbook.Sheets[sheetName];
-                const jsonData = XLSX.utils.sheet_to_json(worksheet);
+                const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+
+                if (jsonData.length === 0) {
+                    throw new Error(`No data rows found in sheet "${sheetName}"`);
+                }
+
+                const toInt = (value, fallback = 0) => {
+                    if (value === null || value === undefined || value === '') return fallback;
+                    const numericValue = Number(String(value).trim());
+                    return Number.isFinite(numericValue) ? Math.trunc(numericValue) : fallback;
+                };
+
+                const parseEligibleMachines = (value) => {
+                    if (Array.isArray(value)) {
+                        return value.map(machine => String(machine).trim()).filter(Boolean);
+                    }
+
+                    return String(value || '')
+                        .split(',')
+                        .map(machine => machine.trim())
+                        .filter(Boolean);
+                };
                 
                 // Validate and normalize the data
-                const normalizedData = jsonData.map(row => ({
-                    partnumber: row.PartNumber || row.partnumber || '',
-                    operationseq: parseInt(row.OperationSeq || row.operationseq) || 0,
-                    operationname: row.OperationName || row.operationname || '',
-                    setuptime_min: parseInt(row.SetupTime_Min || row.setuptime_min) || 0,
-                    operator: row.Operater || row.operator || '', // Note: Excel has "Operater" typo
-                    cycletime_min: parseInt(row.CycleTime_Min || row.cycletime_min) || 0,
-                    minimum_batchsize: parseInt(row.Minimum_BatchSize || row.minimum_batchsize) || 1,
-                    eligiblemachines: Array.isArray(row.EligibleMachines) ? row.EligibleMachines : 
-                                    (row.EligibleMachines || row.eligiblemachines || '').split(',').map(m => m.trim()).filter(m => m)
-                }));
+                const normalizedData = jsonData.map((row) => {
+                    const normalizedRow = {};
+                    Object.entries(row).forEach(([key, value]) => {
+                        normalizedRow[normalizeHeaderKey(key)] = value;
+                    });
+
+                    return {
+                        partnumber: String(normalizedRow.partnumber || '').trim(),
+                        operationseq: toInt(normalizedRow.operationseq, 0),
+                        operationname: String(normalizedRow.operationname || '').trim(),
+                        setuptime_min: toInt(normalizedRow.setuptimemin, 0),
+                        operator: String(normalizedRow.operater || normalizedRow.operator || '').trim(),
+                        cycletime_min: toInt(normalizedRow.cycletimemin, 0),
+                        minimum_batchsize: toInt(normalizedRow.minimumbatchsize, 1),
+                        eligiblemachines: parseEligibleMachines(normalizedRow.eligiblemachines)
+                    };
+                });
                 
                 // Validate required fields
-                const invalidRows = normalizedData.filter(row => !row.partnumber || !row.operationseq);
+                const invalidRows = normalizedData.filter(row => !row.partnumber || row.operationseq <= 0);
                 if (invalidRows.length > 0) {
-                    throw new Error(`Invalid data: ${invalidRows.length} rows missing PartNumber or OperationSeq`);
+                    throw new Error(`Invalid data in "${sheetName}": ${invalidRows.length} rows missing PartNumber or valid OperationSeq`);
                 }
                 
                 resolve(normalizedData);
@@ -4460,8 +4525,21 @@ Order Details:
                 
                 if (error) throw error;
                 
-                // Update global operations data
-                window.operationsData = data;
+                // Normalize DB rows into the shape expected across the UI/scheduler.
+                const normalizedOperations = (data || []).map(op => ({
+                    PartNumber: op.PartNumber ?? op.partnumber ?? '',
+                    OperationSeq: toNumberOr(op.OperationSeq ?? op.operationseq, 0),
+                    OperationName: op.OperationName ?? op.operationname ?? '',
+                    SetupTime_Min: toNumberOr(op.SetupTime_Min ?? op.setuptime_min, 0),
+                    Operater: op.Operater ?? op.operater ?? op.Operator ?? op.operator ?? '',
+                    CycleTime_Min: toNumberOr(op.CycleTime_Min ?? op.cycletime_min, 0),
+                    Minimum_BatchSize: toNumberOr(op.Minimum_BatchSize ?? op.minimum_batchsize, 1),
+                    EligibleMachines: op.EligibleMachines ?? op.eligiblemachines ?? ''
+                }));
+                
+                // Keep both references for backward compatibility in the app.
+                window.operationsData = normalizedOperations;
+                window.OP_MASTER = normalizedOperations;
                 
                 // Refresh part number search
                 setupPartNumberSearch();
@@ -4470,6 +4548,12 @@ Order Details:
                 console.error('Error refreshing operations:', error);
                 showAlert('Error refreshing data from database', 'error');
             }
+        }
+
+        function toNumberOr(value, fallback = 0) {
+            if (value === null || value === undefined || value === '') return fallback;
+            const numericValue = Number(value);
+            return Number.isFinite(numericValue) ? numericValue : fallback;
         }
 
         // Update user role indicator in UI
